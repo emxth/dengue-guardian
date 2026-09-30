@@ -1,0 +1,3 @@
+# Unit and integration tests for Component 3.
+# Tests will be added alongside each sub-module implementation.
+# Run with:  pytest tests/ -v --cov=component_3_phi_planning

@@ -1,0 +1,5 @@
+# Place raw, processed, and external datasets in this directory.
+# Datasets are excluded from version control via .gitignore.
+# Commit only:
+#   - data schema / data dictionary documents
+#   - small anonymised sample files used in unit tests
