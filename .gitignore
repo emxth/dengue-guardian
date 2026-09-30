@@ -1,0 +1,65 @@
+# =====================================================================
+# Python Runtime & Bytecode
+# =====================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# =====================================================================
+# Virtual Environments & IDE Configuration
+# =====================================================================
+.venv/
+venv*/
+.env
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =====================================================================
+# Component 1: Machine Learning Binary Artifacts
+# Justification: Binary model weights (*.pt, *.onnx) are large (>10MB-100MB)
+# and non-diffable in Git. They must be stored in releases or external storage.
+# =====================================================================
+component_1_edge_ai/models/*.pt
+component_1_edge_ai/models/*.onnx
+component_1_edge_ai/models/*.engine
+component_1_edge_ai/models/*.tflite
+
+# =====================================================================
+# Component 1: Datasets, Images, and Local Storage
+# Justification: High-frequency camera frames and SQLite databases cause
+# Git bloat and write lock issues across collaborators.
+# =====================================================================
+component_1_edge_ai/data/*.db
+component_1_edge_ai/data/*.sqlite3
+component_1_edge_ai/data/*.csv
+component_1_edge_ai/data/captured_frames/
+component_1_edge_ai/data/dataset/
+
+# =====================================================================
+# Operational Logs & OS Metadata
+# =====================================================================
+*.log
+.DS_Store
+Thumbs.db
