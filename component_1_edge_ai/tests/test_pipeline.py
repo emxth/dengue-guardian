@@ -32,7 +32,7 @@ def run_synthetic_pipeline():
     
     # 5. Package everything into our validated Pydantic schema
     # (Using placeholder AI outputs until we hook up the AI modules next)
-    sample_objects = DetectedObjects(tyre=2, coco_shell=4, bottle=1)
+    sample_objects = DetectedObjects(tire=2, coconut_exocarp=4, bottle=1)
     
     record = TelemetryRecord(
         latitude=lat,
