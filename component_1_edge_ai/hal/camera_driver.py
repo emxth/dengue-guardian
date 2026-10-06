@@ -1,21 +1,25 @@
 import numpy as np
 import cv2
-from pathlib import Path
 from config import MOCK_HARDWARE, DATA_DIR
 
 def capture_frame() -> np.ndarray:
     """
     Captures an image frame for YOLO inference.
-    Returns a 640x640 RGB numpy array.
+    In Mock Mode, loads 'detect.png' from /data if available; otherwise returns a grey frame.
     """
     if MOCK_HARDWARE:
-        # Check if we placed a sample test image in the data folder for realistic testing
-        sample_img_path = DATA_DIR / "sample_test.jpg"
-        if sample_img_path.exists():
-            img = cv2.imread(str(sample_img_path))
-            return cv2.resize(img, (640, 640))
+        # Check for our test image inside component_1_edge_ai/data/
+        for filename in ["detect.png", "sample_test.jpg", "detect.jpg"]:
+            img_path = DATA_DIR / filename
+            if img_path.exists():
+                img = cv2.imread(str(img_path))
+                if img is not None:
+                    print(f"[Camera Mock] Loaded test image: {filename}")
+                    # Resize to 640x640 to match our exported ONNX input shape
+                    return cv2.resize(img, (640, 640))
         
-        # Otherwise, generate a dummy 640x640 grey frame so the pipeline doesn't break
+        # Fallback if no test image is found in /data
+        print("[Camera Mock] No test image found in /data. Using blank grey frame.")
         dummy_frame = np.full((640, 640, 3), 128, dtype=np.uint8)
         return dummy_frame
 
