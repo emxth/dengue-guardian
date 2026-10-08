@@ -26,10 +26,11 @@ def clean_text_columns(dataframe):
     """Remove unnecessary whitespace from text fields."""
     dataframe = dataframe.copy()
 
-    for column in dataframe.select_dtypes(include="object").columns:
-        dataframe[column] = dataframe[column].apply(
-            lambda value: value.strip() if isinstance(value, str) else value
-        )
+    # Process only columns containing string values.
+    # This avoids pandas warnings caused by generic object dtype selection.
+    for column in dataframe.columns:
+        if pd.api.types.is_string_dtype(dataframe[column]):
+            dataframe[column] = dataframe[column].str.strip()
 
     return dataframe
 
@@ -166,13 +167,19 @@ def validate_dataframe(dataframe, name, required_columns):
         if column not in dataframe.columns
     ]
 
-    missing_values = dataframe[required_columns].isna().sum().sum()
+    # Only calculate missing values when all required columns exist.
+    if missing_columns:
+        missing_values = "Not checked"
+    else:
+        missing_values = dataframe[required_columns].isna().sum().sum()
 
     print(f"\n{name}")
     print("-" * 50)
     print(f"Rows: {len(dataframe):,}")
     print(f"Missing required columns: {missing_columns}")
-    print(f"Missing values in required columns: {missing_values:,}")
+    print(f"Missing values in required columns: {missing_values:,}"
+          if isinstance(missing_values, int)
+          else f"Missing values in required columns: {missing_values}")
 
 
 def preprocess_database(database_path):
@@ -221,7 +228,7 @@ def print_preprocessing_summary(prepared_data, database_path):
     print("C3 DATA PREPROCESSING")
     print("=" * 70)
 
-    print(f"\nSource database:")
+    print("\nSource database:")
     print(database_path)
 
     print("\nPrepared datasets:")
