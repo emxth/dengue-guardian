@@ -210,14 +210,39 @@ def solve_schedule(tasks, phis, plan_date):
         if intervals[phi_id]:
             model.AddNoOverlap(intervals[phi_id])
 
-    # Prioritize high-scoring tasks while considering every available slot.
-    score_terms = []
+    #    # Lexicographically prioritize task levels:
+    # 1. Maximize the number of High-priority tasks scheduled.
+    # 2. Then maximize Medium-priority tasks.
+    # 3. Then maximize Low-priority tasks.
+    #
+    # The weights ensure one additional higher-tier task is worth more
+    # than scheduling every possible task from the lower tiers combined.
+    task_count = len(tasks)
+    medium_weight = task_count + 1
+    high_weight = (task_count + 1) ** 2
+
+    priority_terms = []
+
     for (task_index, phi_id), item in variables.items():
-        score = int(round(tasks[task_index]["priority_score"] * 100))
-        score_terms.append(score * item["assigned"])
+        level = tasks[task_index]["priority_level"].strip().lower()
 
-    model.Maximize(sum(score_terms))
+        if level == "high":
+            weight = high_weight
+        elif level == "medium":
+            weight = medium_weight
+        elif level == "low":
+            weight = 1
+        else:
+            raise ValueError(
+                f"Unknown priority level for task "
+                f"{tasks[task_index]['scenario_task_id']}: "
+                f"{tasks[task_index]['priority_level']}"
+            )
 
+        priority_terms.append(weight * item["assigned"])
+
+    model.Maximize(sum(priority_terms))
+    
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 20
     status = solver.Solve(model)
