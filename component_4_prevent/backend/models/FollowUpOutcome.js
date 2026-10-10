@@ -1,0 +1,1 @@
+// FollowUpOutcome Mongoose Model

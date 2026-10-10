@@ -1,0 +1,15 @@
+{
+  "zone_id": "ZONE-COLOMBO-05",
+  "risk_score": 0.85,
+  "environmental_context": {
+    "rainfall_7d_mm": 120.5,
+    "avg_temp_c": 28.4,
+    "humidity_pct": 82.0,
+    "wind_speed_kmh": 6.5
+  },
+  "entomological_context": {
+    "breteau_index": 35.0,
+    "house_index": 22.5,
+    "dominant_site_type": "stagnant_drains"
+  }
+}
