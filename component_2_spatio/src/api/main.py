@@ -30,10 +30,12 @@ model.load_state_dict(torch.load(model_path, weights_only=True))
 model.eval()
 
 # --- 2. PostgreSQL Database Setup ---
-# When running in Docker, the host is 'db'. Locally, it's 'localhost'.
-DB_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:admin123@localhost:5432/dengue_guardian"
-)
+DB_URL = os.getenv("DATABASE_URL")
+if not DB_URL:
+    raise ValueError(
+        "DATABASE_URL environment variable is missing. Check your .env file."
+    )
+
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
