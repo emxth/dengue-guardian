@@ -202,7 +202,12 @@ def reschedule_tasks(
             work_start = time_to_minutes(details["working_start"])
             work_end = time_to_minutes(details["working_end"])
 
-            candidate_start = work_start
+            # Reserve modeled existing-workload slots at the start of the workday.
+            # The synthetic scheduler models each existing task as 45 minutes.
+            reserved_workload_minutes = (
+                details["existing_workload"] * TASK_DURATION_MINUTES
+            )
+            candidate_start = work_start + reserved_workload_minutes
 
             while candidate_start + TASK_DURATION_MINUTES <= work_end:
                 candidate_end = candidate_start + TASK_DURATION_MINUTES
