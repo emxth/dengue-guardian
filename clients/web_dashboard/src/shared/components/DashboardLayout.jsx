@@ -59,6 +59,18 @@ export default function DashboardLayout() {
                                 <Users size={18} />
                                 User Management
                             </NavLink>
+
+                            <NavLink
+                                to="/dashboard/prevention"
+                                className={({ isActive }) =>
+                                    `flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-bold transition ${isActive
+                                        ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                        : "text-textMuted hover:bg-background"
+                                    }`
+                                }
+                            >
+                                Prevention Intelligence
+                            </NavLink>
                         </nav>
                     </div>
                 </div>
