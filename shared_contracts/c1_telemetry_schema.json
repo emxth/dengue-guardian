@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "DetectedObjects": {
+      "description": "Holds the exact counts of mosquito breeding-related containers \ndetected in a single camera frame. Matches the 5 classes trained \nin our YOLOv8s model.",
+      "properties": {
+        "bottle": {
+          "default": 0,
+          "description": "Plastic/glass bottles",
+          "minimum": 0,
+          "title": "Bottle",
+          "type": "integer"
+        },
+        "coconut_exocarp": {
+          "default": 0,
+          "description": "Discarded coconut shells/husks",
+          "minimum": 0,
+          "title": "Coconut Exocarp",
+          "type": "integer"
+        },
+        "drain_inlet": {
+          "default": 0,
+          "description": "Open or blocked surface drains",
+          "minimum": 0,
+          "title": "Drain Inlet",
+          "type": "integer"
+        },
+        "tire": {
+          "default": 0,
+          "description": "Discarded vehicle tires",
+          "minimum": 0,
+          "title": "Tire",
+          "type": "integer"
+        },
+        "vase": {
+          "default": 0,
+          "description": "Flower pots or vases",
+          "minimum": 0,
+          "title": "Vase",
+          "type": "integer"
+        }
+      },
+      "title": "DetectedObjects",
+      "type": "object"
+    }
+  },
+  "description": "Master data contract for Component 1. Combines local sensor readings,\nexternal rainfall data, YOLO container counts, and final risk scores.",
+  "properties": {
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "latitude": {
+      "maximum": 90.0,
+      "minimum": -90.0,
+      "title": "Latitude",
+      "type": "number"
+    },
+    "longitude": {
+      "maximum": 180.0,
+      "minimum": -180.0,
+      "title": "Longitude",
+      "type": "number"
+    },
+    "temperature": {
+      "description": "Ambient temperature in Celsius from DHT22",
+      "title": "Temperature",
+      "type": "number"
+    },
+    "humidity": {
+      "description": "Relative humidity percentage from DHT22",
+      "title": "Humidity",
+      "type": "number"
+    },
+    "rainfall_mm": {
+      "default": 0.0,
+      "description": "Recent rainfall in mm from Weather API",
+      "title": "Rainfall Mm",
+      "type": "number"
+    },
+    "weather_risk_score": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Weather Risk Score",
+      "type": "number"
+    },
+    "objects": {
+      "$ref": "#/$defs/DetectedObjects"
+    },
+    "environmental_breeding_risk": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Environmental Breeding Risk",
+      "type": "number"
+    },
+    "risk_level": {
+      "default": "Pending",
+      "title": "Risk Level",
+      "type": "string"
+    }
+  },
+  "required": [
+    "latitude",
+    "longitude",
+    "temperature",
+    "humidity"
+  ],
+  "title": "TelemetryRecord",
+  "type": "object"
+}
