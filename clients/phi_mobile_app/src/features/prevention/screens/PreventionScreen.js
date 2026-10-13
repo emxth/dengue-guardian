@@ -27,6 +27,7 @@ export default function PreventionScreen() {
         const zoneContext = {
           temperature: 29.5,
           rainfall: 85.0,
+          cumulative_rainfall_14_days: 120.0,
           mosquito_density: 45.0,
           breeding_sites_count: 28,
           wind_speed: 10.0
@@ -52,10 +53,16 @@ export default function PreventionScreen() {
 
     setIsSubmitting(true);
     try {
+      // UPDATED PAYLOAD: This exactly matches your FastAPI 'InterventionRecord' format
       await preventionApi.recordIntervention({
-        strategy: aiData.top_recommendation.tier_1_macro,
-        post_intervention_breteau_index: parseInt(breteauIndex, 10),
-        timestamp: new Date().toISOString()
+        temperature: 29.5,
+        rainfall: 85.0,
+        cumulative_rainfall_14_days: 120.0,
+        mosquito_density: parseFloat(breteauIndex), // User input from the text box
+        breeding_sites_count: 3,
+        wind_speed: 10.0,
+        intervention_taken: aiData.top_recommendation.tier_1_macro, // AI's recommendation
+        effectiveness_score: parseFloat(breteauIndex) < 5 ? 0.9 : 0.4,
       });
 
       Alert.alert(
@@ -64,7 +71,8 @@ export default function PreventionScreen() {
       );
       setBreteauIndex("");
     } catch (error) {
-      Alert.alert("Sync Failed", "Could not connect to the Node.js backend.");
+      console.error("Sync error:", error);
+      Alert.alert("Sync Failed", "Could not connect to the FastAPI backend.");
     } finally {
       setIsSubmitting(false);
     }

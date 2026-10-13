@@ -93,16 +93,14 @@ export default function InspectionScreen() {
               <TouchableOpacity
                 key={type.id}
                 onPress={() => setPremiseType(type.id)}
-                className={`w-[48%] py-2.5 px-3 rounded-lg mb-2 border flex-row items-center justify-between ${
-                  isSelected
-                    ? "bg-primary border-primary"
-                    : "bg-slate-50 border-slate-200"
-                }`}
+                className={`w-[48%] py-2.5 px-3 rounded-lg mb-2 border flex-row items-center justify-between ${isSelected
+                  ? "bg-primary border-primary"
+                  : "bg-slate-50 border-slate-200"
+                  }`}
               >
                 <Text
-                  className={`text-xs font-semibold ${
-                    isSelected ? "text-surface" : "text-darkBase"
-                  }`}
+                  className={`text-xs font-semibold ${isSelected ? "text-surface" : "text-darkBase"
+                    }`}
                 >
                   {type.label}
                 </Text>
