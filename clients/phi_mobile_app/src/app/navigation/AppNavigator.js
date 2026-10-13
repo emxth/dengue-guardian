@@ -137,4 +137,4 @@ export default function AppNavigator() {
       </Tab.Navigator>
     </NavigationContainer>
   );
-}
+}

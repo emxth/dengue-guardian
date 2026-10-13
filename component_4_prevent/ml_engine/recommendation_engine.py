@@ -1,12 +1,12 @@
-# Context-aware recommendation logic
+# Context-aware recommendation logic (XGBoost Integration)
 
 import joblib
-import numpy as np
 import pandas as pd
+import xgboost as xgb
 import os
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "saved_models", "baseline_regressor.pkl")
-PREPROCESSOR_PATH = os.path.join(os.path.dirname(__file__), "saved_models", "preprocessor.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "saved_models", "xgboost_dengue_model.json")
+FEATURES_PATH = os.path.join(os.path.dirname(__file__), "saved_models", "model_features.pkl")
 
 # Candidate combinations for simulation
 CANDIDATE_STRATEGIES = [
@@ -18,41 +18,42 @@ CANDIDATE_STRATEGIES = [
 
 class RecommendationEngine:
     def __init__(self):
-        self.model = joblib.load(MODEL_PATH)
-        self.preprocessor = joblib.load(PREPROCESSOR_PATH)
+        # Load the XGBoost model
+        self.model = xgb.XGBRegressor()
+        self.model.load_model(MODEL_PATH)
+        # Load the exact feature columns the model expects
+        self.feature_columns = joblib.load(FEATURES_PATH)
 
     def evaluate_candidates(self, context: dict):
-        """
-        context format:
-        {
-            "temperature": float,
-            "rainfall": float,
-            "mosquito_density": float,
-            "breeding_sites_count": int,
-            "wind_speed": float (optional, default 8.0)
-        }
-        """
-        records = []
-        for strat in CANDIDATE_STRATEGIES:
-            records.append({
-                "temperature": context["temperature"],
-                "rainfall": context["rainfall"],
-                "mosquito_density": context["mosquito_density"],
-                "breeding_sites_count": context["breeding_sites_count"],
-                "tier_1_macro": strat["macro"],
-                "tier_2_micro": strat["micro"]
-            })
-
-        candidate_df = pd.DataFrame(records)
-        X_processed = self.preprocessor.transform(candidate_df)
-        predicted_scores = self.model.predict(X_processed)
-
+        base_df = pd.DataFrame([context])
         results = []
-        for idx, strat in enumerate(CANDIDATE_STRATEGIES):
+        
+        for strat in CANDIDATE_STRATEGIES:
+            test_case = base_df.copy()
+            
+            # Map interventions to the one-hot encoded columns XGBoost expects
+            test_case['tier_1_macro_Adulticiding (Fogging)'] = 1 if strat['macro'] == 'Adulticiding (Fogging)' else 0
+            test_case['tier_1_macro_Larviciding'] = 1 if strat['macro'] == 'Larviciding' else 0
+            test_case['tier_1_macro_Source Reduction'] = 1 if strat['macro'] == 'Source Reduction' else 0
+            
+            test_case['tier_2_micro_Deltamethrin'] = 1 if strat['micro'] == 'Deltamethrin' else 0
+            test_case['tier_2_micro_Malathion'] = 1 if strat['micro'] == 'Malathion' else 0
+            test_case['tier_2_micro_None'] = 1 if strat['micro'] == 'None' else 0
+            test_case['tier_2_micro_Temephos (Abate)'] = 1 if strat['micro'] == 'Temephos (Abate)' else 0
+            
+            # Ensure columns perfectly match training data order
+            for col in self.feature_columns:
+                if col not in test_case.columns:
+                    test_case[col] = 0
+            test_case = test_case[self.feature_columns]
+            
+            # Predict effectiveness score
+            predicted_score = self.model.predict(test_case)[0]
+            
             results.append({
                 "macro_strategy": strat["macro"],
                 "micro_strategy": strat["micro"],
-                "predicted_effectiveness": round(float(predicted_scores[idx]), 2)
+                "predicted_effectiveness": round(float(predicted_score), 2)
             })
 
         # Sort by predicted effectiveness descending
@@ -78,7 +79,7 @@ class RecommendationEngine:
 
         explanation_summary = (
             f"Rank #1 strategy '{top_choice['macro_strategy']}' selected with predicted {top_choice['predicted_effectiveness']}% effectiveness "
-            f"under {context['rainfall']}mm rainfall and {context['breeding_sites_count']} active sites."
+            f"under {context['cumulative_rainfall_14_days']}mm cumulative rainfall and {context['breeding_sites_count']} active sites."
         )
 
         return {
@@ -97,6 +98,7 @@ if __name__ == "__main__":
     sample_context = {
         "temperature": 29.5,
         "rainfall": 85.0,
+        "cumulative_rainfall_14_days": 210.5,
         "mosquito_density": 45.0,
         "breeding_sites_count": 28,
         "wind_speed": 10.0

@@ -17,7 +17,7 @@ export const preventionApi = {
      */
     getRecommendations: async (context) => {
         try {
-            const response = await apiClient.post('/recommendations', context);
+            const response = await axios.post('http://localhost:8000/recommend', context);
             return response.data.data;
         } catch (error) {
             console.error('Error fetching recommendations:', error);
