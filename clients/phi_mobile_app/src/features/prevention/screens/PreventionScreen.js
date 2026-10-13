@@ -61,8 +61,8 @@ export default function PreventionScreen() {
         mosquito_density: parseFloat(breteauIndex), // User input from the text box
         breeding_sites_count: 3,
         wind_speed: 10.0,
-        intervention_taken: aiData.top_recommendation.tier_1_macro, // AI's recommendation
-        effectiveness_score: parseFloat(breteauIndex) < 5 ? 0.9 : 0.4,
+        intervention_taken: aiData?.top_recommendation?.tier_1_macro || "Source Reduction",
+        effectiveness_score: parseFloat(breteauIndex) < 5 ? 90.0 : 45.0,
       });
 
       Alert.alert(
@@ -72,7 +72,7 @@ export default function PreventionScreen() {
       setBreteauIndex("");
     } catch (error) {
       console.error("Sync error:", error);
-      Alert.alert("Sync Failed", "Could not connect to the FastAPI backend.");
+      Alert.alert("Sync Failed", "Could not connect to the Dengue Guardian backend.");
     } finally {
       setIsSubmitting(false);
     }

@@ -60,9 +60,45 @@ class RecommendationEngine:
         results = sorted(results, key=lambda x: x["predicted_effectiveness"], reverse=True)
         return results
 
+    def compute_feature_contributions(self, context: dict, top_choice: dict):
+        base_df = pd.DataFrame([context])
+        for col in self.feature_columns:
+            if col not in base_df.columns:
+                base_df[col] = 0
+        base_df[f"tier_1_macro_{top_choice['macro_strategy']}"] = 1
+        base_df[f"tier_2_micro_{top_choice['micro_strategy']}"] = 1
+        test_case = base_df[self.feature_columns]
+
+        contribs = self.model.get_booster().predict(xgb.DMatrix(test_case), pred_contribs=True)[0]
+
+        feature_labels = {
+            'rainfall': f"7-Day Rain ({context.get('rainfall', 0)}mm)",
+            'cumulative_rainfall_14_days': f"14-Day Cumulative Rain ({context.get('cumulative_rainfall_14_days', 0)}mm)",
+            'mosquito_density': f"Mosquito Density ({context.get('mosquito_density', 0)})",
+            'breeding_sites_count': f"Breeding Sites ({context.get('breeding_sites_count', 0)})",
+            'temperature': f"Temperature ({context.get('temperature', 0)}°C)",
+            'wind_speed': f"Wind Speed ({context.get('wind_speed', 0)} km/h)"
+        }
+
+        contributions = []
+        for col, val in zip(self.feature_columns, contribs):
+            if col in feature_labels:
+                contributions.append({
+                    "feature": feature_labels[col],
+                    "raw_feature": col,
+                    "impact": round(float(val), 2)
+                })
+
+        # Sort by absolute impact descending
+        contributions.sort(key=lambda x: abs(x["impact"]), reverse=True)
+        return contributions
+
     def get_recommendation(self, context: dict):
         evaluated = self.evaluate_candidates(context)
         top_choice = evaluated[0]
+
+        # Compute native XGBoost Tree SHAP feature contributions for the selected strategy
+        feature_contributions = self.compute_feature_contributions(context, top_choice)
 
         # Tier-2 Micro Application Refinement (Thermal Fogging vs ULV Cold Fogging)
         application_method = "Manual Physical Action"
@@ -90,7 +126,8 @@ class RecommendationEngine:
                 "predicted_effectiveness": top_choice["predicted_effectiveness"],
                 "rationale": explanation_summary
             },
-            "ranked_alternatives": evaluated
+            "ranked_alternatives": evaluated,
+            "feature_importance": feature_contributions
         }
 
 if __name__ == "__main__":

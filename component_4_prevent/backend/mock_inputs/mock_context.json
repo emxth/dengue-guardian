@@ -3,6 +3,7 @@
   "risk_score": 0.85,
   "environmental_context": {
     "rainfall_7d_mm": 120.5,
+    "cumulative_rainfall_14_days": 241.0,
     "avg_temp_c": 28.4,
     "humidity_pct": 82.0,
     "wind_speed_kmh": 6.5

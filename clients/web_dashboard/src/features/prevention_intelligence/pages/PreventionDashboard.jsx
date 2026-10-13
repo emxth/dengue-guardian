@@ -206,7 +206,11 @@ const PreventionDashboard = () => {
 
                     {/* XAI Chart (Only shows when data is loaded) */}
                     {recommendationData && !loading && (
-                        <XAIExplanationChart />
+                        <XAIExplanationChart
+                            featureImportance={recommendationData.feature_importance}
+                            topRecommendation={recommendationData.top_recommendation}
+                            context={context}
+                        />
                     )}
                 </div>
             </div>

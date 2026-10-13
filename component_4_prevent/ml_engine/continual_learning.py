@@ -1,44 +1,89 @@
 # Continual learning module for retrain loop based on feedback outcomes
+# Single source of truth for all SQLite DB operations.
 
 import sqlite3
+import os
 
 DB_NAME = "interventions.db"
+BENCHMARK_CSV = os.path.join(os.path.dirname(__file__), "../data/synthetic/phi_intervention_benchmark.csv")
+
+# ─── Schema ────────────────────────────────────────────────────────────────────
+# Standardised on ONE table: intervention_outcomes
+# Used by:
+#   • init_db()             – startup table creation
+#   • save_new_intervention() – /record-intervention endpoint
+#   • get_all_outcomes_df() – /retrain-model endpoint
+# ────────────────────────────────────────────────────────────────────────────────
+
+_CREATE_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS intervention_outcomes (
+        id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+        temperature                REAL    NOT NULL,
+        rainfall                   REAL    NOT NULL,
+        cumulative_rainfall_14_days REAL   NOT NULL,
+        mosquito_density           REAL    NOT NULL,
+        breeding_sites_count       INTEGER NOT NULL,
+        wind_speed                 REAL    NOT NULL,
+        intervention_taken         TEXT    NOT NULL,
+        effectiveness_score        REAL    NOT NULL,
+        timestamp                  DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
+_INSERT_SQL = """
+    INSERT INTO intervention_outcomes (
+        temperature, rainfall, cumulative_rainfall_14_days,
+        mosquito_density, breeding_sites_count, wind_speed,
+        intervention_taken, effectiveness_score
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_SELECT_SQL = """
+    SELECT
+        temperature, rainfall, cumulative_rainfall_14_days,
+        mosquito_density, breeding_sites_count, wind_speed,
+        intervention_taken, effectiveness_score
+    FROM intervention_outcomes
+"""
 
 def init_db():
-    # Initialize the SQLite database and create the table if it does not exist
+    """Create the intervention_outcomes table if it does not exist."""
     conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS intervention_outcomes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            temperature REAL,
-            rainfall REAL,
-            cumulative_rainfall_14_days REAL,
-            mosquito_density REAL,
-            breeding_sites_count INTEGER,
-            wind_speed REAL,
-            intervention_taken TEXT,
-            effectiveness_score REAL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    conn.close()
-    print("Database initialized successfully.")
+    try:
+        conn.execute(_CREATE_TABLE_SQL)
+        conn.commit()
+        print("[CL] Database initialised: intervention_outcomes table ready.")
+    finally:
+        conn.close()
 
-def save_new_intervention(data):
-    # Insert the new intervention outcome into the database
+
+def save_new_intervention(record) -> None:
+    """
+    Persist a validated InterventionRecord (Pydantic model) to SQLite.
+    Uses parameterised query to prevent SQL injection.
+    """
     conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO intervention_outcomes 
-        (temperature, rainfall, cumulative_rainfall_14_days, mosquito_density, 
-         breeding_sites_count, wind_speed, intervention_taken, effectiveness_score)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        data.temperature, data.rainfall, data.cumulative_rainfall_14_days, 
-        data.mosquito_density, data.breeding_sites_count, data.wind_speed, 
-        data.intervention_taken, data.effectiveness_score
-    ))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(_INSERT_SQL, (
+            record.temperature,
+            record.rainfall,
+            record.cumulative_rainfall_14_days,
+            record.mosquito_density,
+            record.breeding_sites_count,
+            record.wind_speed,
+            record.intervention_taken,
+            record.effectiveness_score,
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_row_count() -> int:
+    """Return total number of filed intervention records."""
+    conn = sqlite3.connect(DB_NAME)
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM intervention_outcomes").fetchone()
+        return row[0] if row else 0
+    finally:
+        conn.close()

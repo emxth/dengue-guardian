@@ -15,8 +15,18 @@ def load_and_preprocess_data(filepath):
     y = df['effectiveness_score']
     
     # Define categorical and numerical columns
+    # NOTE: cumulative_rainfall_14_days and wind_speed MUST be included here.
+    # Omitting them causes ColumnTransformer to silently drop them, producing
+    # an 8-feature model that is incompatible with the 12-feature production engine.
     categorical_cols = ['tier_1_macro', 'tier_2_micro']
-    numerical_cols = ['temperature', 'rainfall', 'mosquito_density', 'breeding_sites_count']
+    numerical_cols = [
+        'temperature',
+        'rainfall',
+        'cumulative_rainfall_14_days',
+        'wind_speed',
+        'mosquito_density',
+        'breeding_sites_count',
+    ]
     
     # Create the preprocessing pipeline
     preprocessor = ColumnTransformer(

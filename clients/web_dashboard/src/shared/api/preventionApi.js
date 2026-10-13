@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Ensure you have VITE_API_BASE_URL=http://localhost:5000 in your web_dashboard/.env file
+// Ensure you have VITE_API_BASE_URL=http://localhost:5000/api in your web_dashboard/.env file
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 const apiClient = axios.create({
@@ -13,20 +13,21 @@ const apiClient = axios.create({
 export const preventionApi = {
     /**
      * Fetch AI recommendations based on current environmental context
-     * @param {Object} context { temperature, rainfall, mosquito_density, breeding_sites_count, wind_speed }
+     * Routes through Node.js Express backend -> Python FastAPI ML microservice
+     * @param {Object} context { temperature, rainfall, cumulative_rainfall_14_days, mosquito_density, breeding_sites_count, wind_speed }
      */
     getRecommendations: async (context) => {
         try {
-            const response = await axios.post('http://localhost:8000/recommend', context);
+            const response = await apiClient.post('/recommendations', context);
             return response.data.data;
         } catch (error) {
-            console.error('Error fetching recommendations:', error);
+            console.error('Error fetching recommendations from backend:', error);
             throw error;
         }
     },
 
     /**
-     * Fetch historical intervention records
+     * Fetch historical intervention records from MongoDB
      * @param {String} zoneId (Optional) Filter by specific zone
      */
     getInterventions: async (zoneId = null) => {
@@ -41,7 +42,7 @@ export const preventionApi = {
     },
 
     /**
-     * Log a new intervention action (simulating the PHI Mobile App action from the web for testing)
+     * Log a new intervention action (synced to MongoDB and ML continual learning)
      * @param {Object} recordData 
      */
     recordIntervention: async (recordData) => {
@@ -50,6 +51,19 @@ export const preventionApi = {
             return response.data;
         } catch (error) {
             console.error('Error recording intervention:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Trigger continual learning retraining loop via backend proxy
+     */
+    triggerRetraining: async () => {
+        try {
+            const response = await apiClient.post('/retrain', {});
+            return response.data;
+        } catch (error) {
+            console.error('Error triggering model retraining:', error);
             throw error;
         }
     }
