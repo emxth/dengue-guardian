@@ -33,6 +33,30 @@ def test_priorities_endpoint():
     assert len(body["complaints"]) == 5
 
 
+def test_priorities_includes_location_information():
+    response = client.get("/api/v1/planning/priorities?limit=5")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert "locations" in body
+    assert "LOC001" in body["locations"]
+    assert body["locations"]["LOC001"]["location_name"] == "Malabe East"
+    assert "Synthetic Point" in body["locations"]["LOC001"]["location_label"]
+
+    first_case = body["cases"][0]
+    assert "location_id" in first_case
+    assert "location_name" in first_case
+    assert "location_label" in first_case
+    assert first_case["location_name"] != ""
+
+    first_complaint = body["complaints"][0]
+    assert "location_id" in first_complaint
+    assert "location_name" in first_complaint
+    assert "location_label" in first_complaint
+    assert first_complaint["location_name"] != ""
+
+
 def test_priorities_rejects_invalid_limit():
     response = client.get("/api/v1/planning/priorities?limit=0")
 

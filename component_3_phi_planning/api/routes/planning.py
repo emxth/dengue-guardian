@@ -88,6 +88,44 @@ def get_priorities(
             cases = score_cases(connection, calculated_at)
             complaints = score_complaints(connection, calculated_at)
 
+            # Query authoritative synthetic locations lookup
+            cursor = connection.cursor()
+            cursor.execute(
+                "SELECT location_id, village_area, location_label, phi_range "
+                "FROM Locations"
+            )
+            location_map = {
+                row[0]: {
+                    "location_id": row[0],
+                    "location_name": row[1] if row[1] else "Name unavailable",
+                    "location_label": row[2] if row[2] else "Synthetic Point",
+                    "phi_range": row[3] if row[3] else "Unknown Range",
+                }
+                for row in cursor.fetchall()
+            }
+
+            for item in cases:
+                loc = location_map.get(item.get("location_id"))
+                if loc:
+                    item["location_name"] = loc["location_name"]
+                    item["location_label"] = loc["location_label"]
+                    item["phi_range"] = loc["phi_range"]
+                else:
+                    item["location_name"] = "Name unavailable"
+                    item["location_label"] = "Unknown location"
+                    item["phi_range"] = "Unknown Range"
+
+            for item in complaints:
+                loc = location_map.get(item.get("location_id"))
+                if loc:
+                    item["location_name"] = loc["location_name"]
+                    item["location_label"] = loc["location_label"]
+                    item["phi_range"] = loc["phi_range"]
+                else:
+                    item["location_name"] = "Name unavailable"
+                    item["location_label"] = "Unknown location"
+                    item["phi_range"] = "Unknown Range"
+
     except (sqlite3.Error, ValueError, KeyError) as exc:
         raise HTTPException(
             status_code=500,
@@ -105,6 +143,7 @@ def get_priorities(
         "total_complaints": len(complaints),
         "returned_cases": min(limit, len(cases)),
         "returned_complaints": min(limit, len(complaints)),
+        "locations": location_map,
         "cases": cases[:limit],
         "complaints": complaints[:limit],
     }
