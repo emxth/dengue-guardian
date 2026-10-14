@@ -1,28 +1,50 @@
-import numpy as np
+"""
+Hardware Abstraction Layer for the Raspberry Pi Camera.
+Handles image capture and preprocessing for YOLOv11 inference.
+"""
 import cv2
+import numpy as np
+from pathlib import Path
 from config import MOCK_HARDWARE, DATA_DIR
 
 def capture_frame() -> np.ndarray:
     """
-    Captures an image frame for YOLO inference.
-    In Mock Mode, loads 'detect.png' from /data if available; otherwise returns a grey frame.
+    Captures a single frame from the CSI camera.
+    Returns: An OpenCV image array (numpy.ndarray).
     """
     if MOCK_HARDWARE:
-        # Check for our test image inside component_1_edge_ai/data/
-        for filename in ["detect.png", "sample_test.jpg", "detect.jpg"]:
-            img_path = DATA_DIR / filename
-            if img_path.exists():
-                img = cv2.imread(str(img_path))
-                if img is not None:
-                    print(f"[Camera Mock] Loaded test image: {filename}")
-                    # Resize to 640x640 to match our exported ONNX input shape
-                    return cv2.resize(img, (640, 640))
-        
-        # Fallback if no test image is found in /data
-        print("[Camera Mock] No test image found in /data. Using blank grey frame.")
-        dummy_frame = np.full((640, 640, 3), 128, dtype=np.uint8)
-        return dummy_frame
+        # Generate a dummy blank image for testing the orchestrator without a camera
+        print("MOCK: Generating dummy camera frame.")
+        return np.zeros((640, 640, 3), dtype=np.uint8)
 
-    # Physical Pi Camera V2.1 (Sony IMX219) logic using Picamera2 will go here
-    # once the hardware arrives in Phase 2.
-    raise NotImplementedError("Physical Pi Camera capture not configured yet.")
+    try:
+        # Initialize the camera (0 is the default index for the Pi Camera)
+        cap = cv2.VideoCapture(0)
+        
+        if not cap.isOpened():
+            raise RuntimeError("Failed to open the camera port.")
+
+        # Allow the sensor a brief moment to adjust to lighting
+        for _ in range(5):
+            cap.read()
+
+        ret, frame = cap.read()
+        cap.release()
+
+        if not ret:
+            raise RuntimeError("Failed to read frame from camera.")
+
+        return frame
+
+    except Exception as e:
+        print(f"Camera Hardware Error: {e}")
+        # Return a blank array as a safe fallback so the AI pipeline doesn't crash
+        return np.zeros((640, 640, 3), dtype=np.uint8)
+
+def save_frame(frame: np.ndarray, filename: str) -> str:
+    """
+    Saves the captured frame to the local data directory.
+    """
+    filepath = DATA_DIR / filename
+    cv2.imwrite(str(filepath), frame)
+    return str(filepath)

@@ -18,7 +18,11 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 # Hardware Abstraction Mode
 # Set to True when developing on non-Raspberry Pi environments (e.g., development laptop)
 # Set to False when deploying to the physical Raspberry Pi 4
-MOCK_HARDWARE = os.getenv("MOCK_HARDWARE", "True").lower() in ("true", "1")
+
+# MOCK_HARDWARE = os.getenv("MOCK_HARDWARE", "True").lower() in ("true", "1")
+
+# Disables simulated coordinates and activates physical serial reading
+MOCK_HARDWARE = False
 
 # Database Configuration
 DATABASE_PATH = DATA_DIR / "dengue_edge.db"

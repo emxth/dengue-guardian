@@ -3,7 +3,8 @@ import argparse
 import threading
 import uvicorn
 
-from config import MOCK_HARDWARE
+# Added CAMERA_CAPTURE_INTERVAL to import
+from config import MOCK_HARDWARE, CAMERA_CAPTURE_INTERVAL
 from hal.dht22_driver import read_dht22
 from hal.gps_driver import get_location
 from hal.camera_driver import capture_frame
@@ -44,11 +45,17 @@ def run_edge_orchestrator(max_cycles: int = 0, interval_sec: float = 10.0):
     api_thread.start()
     print("[API Server] FastAPI running at http://127.0.0.1:8000 (Docs: http://127.0.0.1:8000/docs)\n")
 
+    # State variables for decoupling the camera interval from the main loop
+    last_camera_capture_time = 0.0
+    cached_detected_objects = None
+    cached_yolo_ms = 0.0
+
     cycle = 0
     try:
         while True:
             cycle += 1
             cycle_start = time.perf_counter()
+            current_time = time.time()
             print(f"--- [Edge Cycle #{cycle}] ---")
 
             # Step A: Acquire local sensor and GPS telemetry via HAL
@@ -66,13 +73,23 @@ def run_edge_orchestrator(max_cycles: int = 0, interval_sec: float = 10.0):
             weather_score, weather_ms = weather_engine.predict_suitability(temp, hum, rainfall)
 
             # Step C: Module 2 - Camera Capture & YOLO ONNX Inference
-            frame = capture_frame()
-            detected_objects, yolo_ms = yolo_engine.detect_and_count(frame)
+            # Only trigger hardware capture if the config interval (e.g., 600s/10min) has elapsed.
+            # Setting last_camera_capture_time=0 initially forces this to run on Cycle 1.
+            if current_time - last_camera_capture_time >= CAMERA_CAPTURE_INTERVAL:
+                print("  [Vision] Interval reached. Capturing new frame and running YOLO inference...")
+                frame = capture_frame()
+                cached_detected_objects, cached_yolo_ms = yolo_engine.detect_and_count(frame)
+                last_camera_capture_time = current_time
+                vision_status = "Fresh Inference"
+            else:
+                # Reuse the most recent YOLO predictions to save CPU/Battery
+                vision_status = "Cached"
 
             # Step D: Module 3 - Multi-Modal Decision Fusion
+            # Fuses live weather telemetry with the cached (or fresh) YOLO object counts
             fused_risk, risk_level, fusion_ms = fusion_engine.evaluate_risk(
                 weather_risk_score=weather_score,
-                objects=detected_objects,
+                objects=cached_detected_objects,
                 mode="fusion"
             )
 
@@ -84,7 +101,7 @@ def run_edge_orchestrator(max_cycles: int = 0, interval_sec: float = 10.0):
                 humidity=hum,
                 rainfall_mm=rainfall,
                 weather_risk_score=weather_score,
-                objects=detected_objects,
+                objects=cached_detected_objects,
                 environmental_breeding_risk=fused_risk,
                 risk_level=risk_level
             )
@@ -96,13 +113,14 @@ def run_edge_orchestrator(max_cycles: int = 0, interval_sec: float = 10.0):
             print(f"  Location   : ({lat}, {lon})")
             print(f"  Environment: Temp={temp}°C | Humidity={hum}% | Rainfall={rainfall}mm")
             print(f"  Weather AI : Suitability={weather_score:.4f} ({weather_ms} ms)")
-            print(f"  YOLO Vision: {detected_objects.model_dump()} ({yolo_ms} ms)")
+            print(f"  YOLO Vision: {cached_detected_objects.model_dump()} ({cached_yolo_ms} ms) [{vision_status}]")
             print(f"  Final Risk : Score={fused_risk:.4f} | Tier=[{risk_level}] (Total Cycle: {total_cycle_ms} ms)\n")
 
             if max_cycles > 0 and cycle >= max_cycles:
                 print(f"[Orchestrator] Completed {max_cycles} target cycles. Exiting cleanly.")
                 break
 
+            # Wait for the next sensor cycle (e.g., 10 seconds)
             time.sleep(interval_sec)
 
     except KeyboardInterrupt:
