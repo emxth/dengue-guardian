@@ -1,50 +1,38 @@
-"""
-Hardware Abstraction Layer for the Raspberry Pi Camera.
-Handles image capture and preprocessing for YOLOv11 inference.
-"""
 import cv2
 import numpy as np
+import subprocess
+import os
 from pathlib import Path
 from config import MOCK_HARDWARE, DATA_DIR
 
 def capture_frame() -> np.ndarray:
-    """
-    Captures a single frame from the CSI camera.
-    Returns: An OpenCV image array (numpy.ndarray).
-    """
     if MOCK_HARDWARE:
-        # Generate a dummy blank image for testing the orchestrator without a camera
-        print("MOCK: Generating dummy camera frame.")
         return np.zeros((640, 640, 3), dtype=np.uint8)
 
+    temp_img_path = str(DATA_DIR / "temp_capture.jpg")
+
     try:
-        # Initialize the camera (0 is the default index for the Pi Camera)
-        cap = cv2.VideoCapture(0)
-        
-        if not cap.isOpened():
-            raise RuntimeError("Failed to open the camera port.")
+        # Using the native rpicam-jpeg command for Pi OS Bookworm
+        result = subprocess.run(
+            ["rpicam-jpeg", "-o", temp_img_path, "-t", "500", "--width", "640", "--height", "640"],
+            capture_output=True,
+            text=True
+        )
 
-        # Allow the sensor a brief moment to adjust to lighting
-        for _ in range(5):
-            cap.read()
-
-        ret, frame = cap.read()
-        cap.release()
-
-        if not ret:
-            raise RuntimeError("Failed to read frame from camera.")
-
-        return frame
+        if result.returncode == 0 and os.path.exists(temp_img_path):
+            frame = cv2.imread(temp_img_path)
+            os.remove(temp_img_path) # Clean up
+            
+            if frame is not None:
+                return frame
+                
+        raise RuntimeError(f"rpicam-jpeg failed: {result.stderr}")
 
     except Exception as e:
         print(f"Camera Hardware Error: {e}")
-        # Return a blank array as a safe fallback so the AI pipeline doesn't crash
         return np.zeros((640, 640, 3), dtype=np.uint8)
 
 def save_frame(frame: np.ndarray, filename: str) -> str:
-    """
-    Saves the captured frame to the local data directory.
-    """
     filepath = DATA_DIR / filename
     cv2.imwrite(str(filepath), frame)
     return str(filepath)

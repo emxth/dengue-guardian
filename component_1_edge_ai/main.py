@@ -15,6 +15,8 @@ from core.api_client import app, export_shared_contract
 from ai_modules.yolo_vision import YOLOVisionEngine
 from ai_modules.weather_ai import WeatherAIEngine
 from ai_modules.risk_fusion import DecisionFusionEngine
+#For Camera image save
+# from hal.camera_driver import save_frame
 
 
 def start_api_server(host: str = "0.0.0.0", port: int = 8000):
@@ -78,6 +80,10 @@ def run_edge_orchestrator(max_cycles: int = 0, interval_sec: float = 10.0):
             if current_time - last_camera_capture_time >= CAMERA_CAPTURE_INTERVAL:
                 print("  [Vision] Interval reached. Capturing new frame and running YOLO inference...")
                 frame = capture_frame()
+
+                # Save the image to the data directory so we can view it
+                # save_frame(frame, "latest_capture.jpg")
+
                 cached_detected_objects, cached_yolo_ms = yolo_engine.detect_and_count(frame)
                 last_camera_capture_time = current_time
                 vision_status = "Fresh Inference"
