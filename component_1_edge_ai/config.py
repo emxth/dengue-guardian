@@ -5,6 +5,10 @@ Controls environment switching, sensor polling parameters, and storage paths.
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load variables from the .env file
+load_dotenv()
 
 # Base Directory Paths
 BASE_DIR = Path(__file__).resolve().parent

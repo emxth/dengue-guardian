@@ -13,10 +13,24 @@ def capture_frame() -> np.ndarray:
 
     try:
         # Using the native rpicam-jpeg command for Pi OS Bookworm
+        # result = subprocess.run(
+        #     ["rpicam-jpeg", "-o", temp_img_path, "-t", "500", "--width", "640", "--height", "640"],
+        #     capture_output=True,
+        #     text=True
+        # )
+
         result = subprocess.run(
-            ["rpicam-jpeg", "-o", temp_img_path, "-t", "500", "--width", "640", "--height", "640"],
+            [
+                "rpicam-jpeg",
+                "-o", temp_img_path,
+                "-t", "1000",
+                "--width", "3280",
+                "--height", "2464",
+                "--quality", "90",
+            ],
             capture_output=True,
-            text=True
+            text=True,
+            timeout=15,
         )
 
         if result.returncode == 0 and os.path.exists(temp_img_path):
