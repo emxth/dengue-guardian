@@ -1,0 +1,5 @@
+# Trained model artefacts (*.pkl, *.joblib, *.h5, etc.) are stored here.
+# Model files are excluded from version control via .gitignore.
+# Commit only:
+#   - model card / documentation files
+#   - small serialised objects used in unit tests
