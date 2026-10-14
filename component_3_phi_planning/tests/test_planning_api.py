@@ -213,3 +213,224 @@ def test_reschedule_uses_api_generated_schedule(
         for task in body["tasks"]
         if task.get("status") == "Scheduled"
     )
+
+
+def test_reschedule_response_contains_transparency_fields():
+    """Verify that reschedule response returns transparency metrics and previous assignment details."""
+    schedule_response = client.post(
+        "/api/v1/planning/schedule",
+        json={"planning_date": "2026-04-01"},
+    )
+    assert schedule_response.status_code == 200
+
+    response = client.post(
+        "/api/v1/planning/reschedule",
+        json={
+            "planning_date": "2026-04-01",
+            "unavailable_phi": "PHI02",
+            "assume_all_pending": True,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    # Required transparency summary fields
+    assert "affected_tasks" in body
+    assert "reassigned_tasks" in body
+    assert "deferred_tasks" in body
+    assert "remaining_unscheduled_tasks" in body
+    assert "unchanged_tasks" in body
+    assert "original_tasks" in body
+    assert isinstance(body["original_tasks"], list)
+    assert len(body["original_tasks"]) == body["total_tasks"]
+
+    # Sum of classifications equals total tasks
+    assert (
+        body["reassigned_tasks"]
+        + body["deferred_tasks"]
+        + body["remaining_unscheduled_tasks"]
+        + body["unchanged_tasks"]
+    ) == body["total_tasks"]
+
+    # Verify per-task fields
+    for task in body["tasks"]:
+        assert "previous_assigned_phi" in task
+        assert "previous_start_time" in task
+        assert "previous_end_time" in task
+        assert "reassignment_classification" in task
+        assert task["reassignment_classification"] in {
+            "Reassigned",
+            "Unchanged",
+            "Deferred",
+            "Unscheduled",
+        }
+
+    # Check PHI02 results (1 successfully reassigned to PHI06, 4 remain unscheduled due to capacity constraints)
+    assert body["affected_tasks"] == 5
+    assert body["reassigned_tasks"] == 1
+    assert body["remaining_unscheduled_tasks"] == 4
+    assert body["unchanged_tasks"] == 45
+
+    # Verify tasks originally assigned to PHI02 have previous_assigned_phi == 'PHI02'
+    phi02_tasks = [
+        t for t in body["tasks"]
+        if t.get("previous_assigned_phi") == "PHI02"
+    ]
+    assert len(phi02_tasks) == 5
+
+    phi02_reassigned = [t for t in phi02_tasks if t["reassignment_classification"] == "Reassigned"]
+    assert len(phi02_reassigned) == 1
+    assert phi02_reassigned[0]["assigned_phi"] == "PHI06"
+    assert phi02_reassigned[0]["status"] == "Scheduled"
+
+    phi02_unscheduled = [t for t in phi02_tasks if t["reassignment_classification"] == "Unscheduled"]
+    assert len(phi02_unscheduled) == 4
+    for t in phi02_unscheduled:
+        assert t["status"] == "Unscheduled"
+        assert "capacity" in t.get("reason", "").lower()
+
+    # Verify tasks originally assigned to other PHIs remained unchanged
+    other_unchanged = [
+        t for t in body["tasks"]
+        if t.get("previous_assigned_phi") not in {"", "PHI02"}
+        and t.get("status") == "Scheduled"
+    ]
+    assert len(other_unchanged) == 45
+    for t in other_unchanged:
+        assert t["reassignment_classification"] == "Unchanged"
+        assert t["assigned_phi"] == t["previous_assigned_phi"]
+
+    # Now verify PHI03 where reassignment actually succeeds for a task
+    response_phi03 = client.post(
+        "/api/v1/planning/reschedule",
+        json={
+            "planning_date": "2026-04-01",
+            "unavailable_phi": "PHI03",
+            "assume_all_pending": True,
+        },
+    )
+    assert response_phi03.status_code == 200
+    body_phi03 = response_phi03.json()
+    assert body_phi03["affected_tasks"] == 5
+    assert body_phi03["reassigned_tasks"] == 1
+    assert body_phi03["remaining_unscheduled_tasks"] == 4
+
+    reassigned_tasks = [
+        t for t in body_phi03["tasks"]
+        if t.get("reassignment_classification") == "Reassigned"
+    ]
+    assert len(reassigned_tasks) == 1
+    reassigned = reassigned_tasks[0]
+    assert reassigned["previous_assigned_phi"] == "PHI03"
+    assert reassigned["assigned_phi"] != "PHI03"
+    assert reassigned["status"] == "Scheduled"
+
+
+def test_reschedule_classification_covers_protected_and_deferred(tmp_path, monkeypatch):
+    """Verify classification logic explicitly preserves protected tasks and flags deferred tasks."""
+    monkeypatch.setattr(planning_routes, "API_OUTPUT_DIR", tmp_path)
+    planning_date = "2026-04-01"
+    plan_path = tmp_path / f"phi_plan_{planning_date}.csv"
+
+    # Synthetic schedule with various task execution statuses
+    test_plan = [
+        {
+            "scenario_task_id": "TASK-COMPLETED",
+            "source_id": "TASK-COMPLETED",
+            "task_type": "Dengue Case Inspection",
+            "priority_score": "95.0",
+            "priority_level": "High",
+            "location_id": "LOC001",
+            "phi_range": "Malabe Range",
+            "village_area": "Malabe East",
+            "planning_date": planning_date,
+            "assigned_phi": "PHI02",
+            "start_time": "08:00",
+            "end_time": "08:45",
+            "status": "Scheduled",
+            "task_status": "Completed",
+            "reason": "Original schedule",
+        },
+        {
+            "scenario_task_id": "TASK-IN-PROGRESS",
+            "source_id": "TASK-IN-PROGRESS",
+            "task_type": "Dengue Case Inspection",
+            "priority_score": "90.0",
+            "priority_level": "High",
+            "location_id": "LOC001",
+            "phi_range": "Malabe Range",
+            "village_area": "Malabe East",
+            "planning_date": planning_date,
+            "assigned_phi": "PHI02",
+            "start_time": "08:45",
+            "end_time": "09:30",
+            "status": "Scheduled",
+            "task_status": "In Progress",
+            "reason": "Original schedule",
+        },
+        {
+            "scenario_task_id": "TASK-PENDING",
+            "source_id": "TASK-PENDING",
+            "task_type": "Dengue Case Inspection",
+            "priority_score": "85.0",
+            "priority_level": "High",
+            "location_id": "LOC001",
+            "phi_range": "Malabe Range",
+            "village_area": "Malabe East",
+            "planning_date": planning_date,
+            "assigned_phi": "PHI02",
+            "start_time": "09:30",
+            "end_time": "10:15",
+            "status": "Scheduled",
+            "task_status": "Pending",
+            "reason": "Original schedule",
+        },
+    ]
+
+    import csv
+    with plan_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(test_plan[0].keys()))
+        writer.writeheader()
+        writer.writerows(test_plan)
+
+    # Call reschedule without assume_all_pending to test real execution status protection
+    response = client.post(
+        "/api/v1/planning/reschedule",
+        json={
+            "planning_date": planning_date,
+            "unavailable_phi": "PHI02",
+            "assume_all_pending": False,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    by_id = {t["scenario_task_id"]: t for t in body["tasks"]}
+
+    # Completed task must stay with PHI02 and be classified as Unchanged (protected)
+    completed = by_id["TASK-COMPLETED"]
+    assert completed["assigned_phi"] == "PHI02"
+    assert completed["status"] == "Scheduled"
+    assert completed["reassignment_classification"] == "Unchanged"
+    assert completed["task_status"] == "Completed"
+
+    # In Progress task must stay with PHI02 and be classified as Unchanged (protected)
+    in_prog = by_id["TASK-IN-PROGRESS"]
+    assert in_prog["assigned_phi"] == "PHI02"
+    assert in_prog["status"] == "Scheduled"
+    assert in_prog["reassignment_classification"] == "Unchanged"
+    assert in_prog["task_status"] == "In Progress"
+
+    # Pending task is eligible for reassignment
+    pending = by_id["TASK-PENDING"]
+    assert pending["previous_assigned_phi"] == "PHI02"
+    assert pending["reassignment_classification"] in {"Reassigned", "Unscheduled"}
+    if pending["status"] == "Scheduled":
+        assert pending["assigned_phi"] != "PHI02"
+        assert pending["reassignment_classification"] == "Reassigned"
+    else:
+        assert pending["status"] == "Unscheduled"
+        assert pending["reassignment_classification"] == "Unscheduled"
+
+
+

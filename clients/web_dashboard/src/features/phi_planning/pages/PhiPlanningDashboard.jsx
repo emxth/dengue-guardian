@@ -19,6 +19,7 @@ import {
 } from "../api/planningApi";
 import PriorityTable from "../components/PriorityTable";
 import ScheduleTable from "../components/ScheduleTable";
+import ReschedulingDetailsTable from "../components/ReschedulingDetailsTable";
 import PlanningSummaryCards from "../components/PlanningSummaryCards";
 import PrioritySummaryCards from "../components/PrioritySummaryCards";
 import LocationDistributionTable from "../components/LocationDistributionTable";
@@ -58,6 +59,7 @@ export default function PhiPlanningDashboard() {
     // ── Schedule state ────────────────────────────────────────────────────────
     const [scheduleDate, setScheduleDate] = useState(DEFAULT_DATE);
     const [scheduleResult, setScheduleResult] = useState(null);
+    const [originalSchedulePlan, setOriginalSchedulePlan] = useState(null);
     const [scheduleLoading, setScheduleLoading] = useState(false);
     const [scheduleError, setScheduleError] = useState(null);
 
@@ -93,6 +95,9 @@ export default function PhiPlanningDashboard() {
         try {
             const data = await createSchedule(scheduleDate);
             setScheduleResult(data);
+            if (data?.tasks) {
+                setOriginalSchedulePlan(data.tasks);
+            }
         } catch (err) {
             setScheduleError(err.message);
         } finally {
@@ -103,6 +108,10 @@ export default function PhiPlanningDashboard() {
     const handleRescheduleConfirmed = useCallback(async () => {
         setShowConfirm(false);
         if (rescheduleLoading) return;
+        // Preserve original plan before rescheduling
+        if (scheduleResult?.tasks && scheduleResult.planning_date === rescheduleDate) {
+            setOriginalSchedulePlan(scheduleResult.tasks);
+        }
         setRescheduleLoading(true);
         setRescheduleError(null);
         try {
@@ -117,7 +126,7 @@ export default function PhiPlanningDashboard() {
         } finally {
             setRescheduleLoading(false);
         }
-    }, [rescheduleLoading, rescheduleDate, unavailablePhi, assumeAllPending]);
+    }, [rescheduleLoading, rescheduleDate, unavailablePhi, assumeAllPending, scheduleResult]);
 
     // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -204,13 +213,18 @@ export default function PhiPlanningDashboard() {
                     assumeAllPending={assumeAllPending}
                     onAssumeChange={setAssumeAllPending}
                     result={rescheduleResult}
+                    originalTasks={
+                        rescheduleResult?.original_tasks ||
+                        originalSchedulePlan ||
+                        (scheduleResult?.planning_date === rescheduleDate ? scheduleResult.tasks : [])
+                    }
                     loading={rescheduleLoading}
                     error={rescheduleError}
                     showConfirm={showConfirm}
                     onRequestConfirm={() => setShowConfirm(true)}
                     onConfirm={handleRescheduleConfirmed}
                     onCancelConfirm={() => setShowConfirm(false)}
-                    scheduleExists={!!scheduleResult}
+                    scheduleExists={!!scheduleResult || !!rescheduleResult}
                 />
             )}
         </div>
@@ -821,6 +835,7 @@ function RescheduleTab({
     assumeAllPending,
     onAssumeChange,
     result,
+    originalTasks = [],
     loading,
     error,
     showConfirm,
@@ -986,54 +1001,27 @@ function RescheduleTab({
             {/* Error */}
             {error && <ApiError message={error} />}
 
-            {/* Result */}
+            {/* Result: Transparent Rescheduling Table */}
             {result && (
                 <div className="space-y-4">
-                    {/* Success header */}
+                    {/* Success notification */}
                     <div className="flex items-center gap-3 bg-mintSurface border border-riskCleared rounded-xl px-4 py-3">
                         <CheckCircle2 size={18} className="text-riskCleared shrink-0" />
                         <p className="text-sm text-darkBase">
                             <span className="font-bold">Rescheduling complete</span> — Tasks for PHI{" "}
                             <span className="font-bold text-primary">{result.unavailable_phi}</span> on{" "}
-                            {result.planning_date} have been successfully redistributed.
+                            {result.planning_date} have been processed.
                         </p>
                     </div>
 
-                    {/* Summary counts */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        <StatCard label="Total Tasks" value={result.total_tasks} />
-                        <StatCard
-                            label="Scheduled"
-                            value={result.scheduled_tasks}
-                            color="text-riskCleared"
-                        />
-                        <StatCard
-                            label="Unscheduled"
-                            value={result.unscheduled_tasks}
-                            color="text-riskHigh"
-                        />
-                        <StatCard
-                            label="Pending Rescheduling"
-                            value={result.pending_rescheduling_tasks}
-                            color="text-riskMedium"
-                        />
-                    </div>
-
-                    {/* Task table */}
-                    <div className="bg-surface rounded-xl border border-borderLight shadow-sm overflow-hidden">
-                        <div className="px-5 py-4 border-b border-borderLight flex items-center justify-between">
-                            <h4 className="text-sm font-bold text-darkBase">
-                                Updated Task Assignments
-                            </h4>
-                            <span className="text-xs text-textMuted">
-                                {result.tasks?.length ?? 0} rows
-                            </span>
-                        </div>
-                        <ScheduleTable
-                            tasks={result.tasks ?? []}
-                            emptyLabel="No tasks were returned in the rescheduling response."
-                        />
-                    </div>
+                    {/* Transparent task redistribution table with KPI cards and filters */}
+                    <ReschedulingDetailsTable
+                        tasks={result.tasks ?? []}
+                        originalTasks={result.original_tasks ?? originalTasks ?? []}
+                        unavailablePhi={result.unavailable_phi}
+                        planningDate={result.planning_date}
+                        summary={result}
+                    />
                 </div>
             )}
 
@@ -1063,16 +1051,6 @@ function EmptyState({ message }) {
         <div className="bg-surface rounded-xl border border-borderLight shadow-sm p-10 text-center text-sm text-textMuted">
             <Info size={28} className="mx-auto mb-3 text-borderLight" />
             {message}
-        </div>
-    );
-}
-
-
-function StatCard({ label, value, color = "text-darkBase" }) {
-    return (
-        <div className="bg-surface rounded-xl border border-borderLight shadow-sm p-4">
-            <p className="text-xs font-bold uppercase text-textMuted mb-1">{label}</p>
-            <p className={`text-2xl font-extrabold ${color}`}>{value ?? "—"}</p>
         </div>
     );
 }
