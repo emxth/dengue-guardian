@@ -11,6 +11,11 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 MODELS_DIR = BASE_DIR / "models"
 
+# Sensor Polling Intervals (in seconds)
+DHT_READ_INTERVAL = 30.0
+GPS_READ_INTERVAL = 5.0
+CAMERA_CAPTURE_INTERVAL = 600.0  # 10 minutes
+
 # Ensure runtime directories exist
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
