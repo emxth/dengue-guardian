@@ -314,9 +314,8 @@ function OverviewTab({ scheduleResult, priorities, onLoadPriorities, onGenerateS
                             unscheduledTasks={scheduleResult.unscheduled_tasks}
                             solverStatus={scheduleResult.solver_status}
                         />
-                        <p className="text-xs text-textMuted italic">
-                            Planning date: {scheduleResult.planning_date} •{" "}
-                            {scheduleResult.note}
+                        <p className="text-xs text-textMuted">
+                            Planning date: <span className="font-semibold text-darkBase">{scheduleResult.planning_date}</span>
                         </p>
                     </div>
                 ) : (
@@ -712,7 +711,7 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
             )}
 
             {!priorities && !loading && !error && (
-                <EmptyState message="Click 'Load Priorities' to fetch provisional priority scores from the API." />
+                <EmptyState message="Click 'Load Priorities' to view inspection task priority rankings." />
             )}
         </div>
     );
@@ -742,7 +741,7 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate })
                         className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
                     <p className="text-xs text-textMuted mt-1">
-                        Synthetic dataset range: 2026-04-01 → 2026-09-30
+                        Date Range: 2026-04-01 → 2026-09-30
                     </p>
                 </div>
 
@@ -771,11 +770,11 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate })
                     <div className="flex items-center gap-3 bg-mintSurface border border-riskCleared rounded-xl px-4 py-3">
                         <CheckCircle2 size={18} className="text-riskCleared shrink-0" />
                         <p className="text-sm text-darkBase">
-                            <span className="font-bold">Schedule generated</span> for{" "}
-                            {result.planning_date} — solver status:{" "}
+                            <span className="font-bold">Schedule generated successfully</span> for{" "}
+                            {result.planning_date} (Status:{" "}
                             <span className="font-bold text-primary">
                                 {result.solver_status}
-                            </span>
+                            </span>)
                         </p>
                     </div>
 
@@ -802,11 +801,6 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate })
                             emptyLabel="No tasks were returned in the schedule response."
                         />
                     </div>
-
-                    {/* API note */}
-                    <p className="text-xs text-textMuted italic px-1">
-                        {result.note}
-                    </p>
                 </div>
             )}
 
@@ -845,9 +839,8 @@ function RescheduleTab({
                         <span className="font-bold text-darkBase">
                             Schedule required first.{" "}
                         </span>
-                        Generate a PHI schedule from the PHI Scheduling tab before running
-                        adaptive rescheduling. The backend will return a 404 if no
-                        API-generated schedule exists for the selected date.
+                        Please generate a schedule from the PHI Scheduling tab before running
+                        adaptive rescheduling for the selected date.
                     </p>
                 </div>
             )}
@@ -928,13 +921,10 @@ function RescheduleTab({
                             htmlFor="assume-all-pending"
                             className="text-sm font-bold text-darkBase cursor-pointer"
                         >
-                            Assume all tasks are Pending
+                            Include remaining uncompleted tasks
                         </label>
                         <p className="text-xs text-textMuted mt-0.5">
-                            The generated schedule does not contain execution statuses
-                            (Pending / In Progress / Completed). Enable this option to
-                            explicitly treat all tasks as pending for this synthetic
-                            simulation scenario. Required for the prototype to run.
+                            Treats pending tasks as eligible for dynamic redistribution to other available officers.
                         </p>
                     </div>
                 </div>
@@ -950,7 +940,7 @@ function RescheduleTab({
                     ) : (
                         <RotateCcw size={15} />
                     )}
-                    {loading ? "Rescheduling…" : "Simulate Rescheduling"}
+                    {loading ? "Rescheduling…" : "Reschedule Tasks"}
                 </button>
             </div>
 
@@ -961,21 +951,16 @@ function RescheduleTab({
                         <AlertTriangle size={18} className="text-riskMedium mt-0.5 shrink-0" />
                         <div>
                             <p className="text-sm font-bold text-darkBase">
-                                Confirm Rescheduling Simulation
+                                Confirm Task Redistribution
                             </p>
                             <p className="text-sm text-textMuted mt-1">
-                                This will simulate marking{" "}
+                                Marking{" "}
                                 <span className="font-bold text-darkBase">
                                     {unavailablePhi}
                                 </span>{" "}
                                 as unavailable on{" "}
-                                <span className="font-bold text-darkBase">{date}</span> and
-                                redistributing their pending tasks to other available PHIs.
-                            </p>
-                            <p className="text-xs text-textMuted mt-2">
-                                This is a synthetic simulation only. It does not update actual
-                                PHI field assignments or real-world records. The original
-                                schedule CSV is not modified.
+                                <span className="font-bold text-darkBase">{date}</span> will
+                                reallocate their assigned inspection tasks to available officers in the division.
                             </p>
                         </div>
                     </div>
@@ -985,7 +970,7 @@ function RescheduleTab({
                             onClick={onConfirm}
                             className="bg-primary hover:bg-secondary text-surface px-4 py-2 rounded-lg text-sm font-bold transition"
                         >
-                            Confirm & Simulate
+                            Confirm & Reschedule
                         </button>
                         <button
                             id="btn-cancel-reschedule"
@@ -1008,9 +993,9 @@ function RescheduleTab({
                     <div className="flex items-center gap-3 bg-mintSurface border border-riskCleared rounded-xl px-4 py-3">
                         <CheckCircle2 size={18} className="text-riskCleared shrink-0" />
                         <p className="text-sm text-darkBase">
-                            <span className="font-bold">Rescheduling complete</span> — PHI{" "}
-                            <span className="font-bold text-primary">{result.unavailable_phi}</span> was
-                            simulated as unavailable on {result.planning_date}.
+                            <span className="font-bold">Rescheduling complete</span> — Tasks for PHI{" "}
+                            <span className="font-bold text-primary">{result.unavailable_phi}</span> on{" "}
+                            {result.planning_date} have been successfully redistributed.
                         </p>
                     </div>
 
@@ -1049,14 +1034,11 @@ function RescheduleTab({
                             emptyLabel="No tasks were returned in the rescheduling response."
                         />
                     </div>
-
-                    {/* API note */}
-                    <p className="text-xs text-textMuted italic px-1">{result.note}</p>
                 </div>
             )}
 
             {!result && !loading && !error && (
-                <EmptyState message="Configure the parameters above and click 'Simulate Rescheduling' to test adaptive task redistribution." />
+                <EmptyState message="Select an unavailable officer and date, then click 'Reschedule Tasks' to reallocate pending tasks." />
             )}
         </div>
     );
