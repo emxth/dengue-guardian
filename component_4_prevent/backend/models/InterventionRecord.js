@@ -19,7 +19,15 @@ const interventionSchema = new mongoose.Schema({
         breedingSites: { type: Number, default: 15 }
     },
     effectivenessScore: { type: Number, default: 75.0 },
-    dateApplied: { type: Date, default: Date.now }
+    dateApplied: { type: Date, default: Date.now },
+    followUp: {
+        date: { type: Date, default: Date.now },
+        postBreedingFoci: { type: Number },
+        postBreteauIndex: { type: Number },
+        fociDropPercentage: { type: Number },
+        outcomeRating: { type: String },
+        score: { type: Number }
+    }
 });
 
 module.exports = mongoose.model('InterventionRecord', interventionSchema);

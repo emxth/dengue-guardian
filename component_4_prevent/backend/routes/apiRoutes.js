@@ -5,7 +5,7 @@ const express = require('express');
 const axios   = require('axios');
 const router  = express.Router();
 
-const { recordIntervention, getInterventions } = require('../controllers/interventionController');
+const { recordIntervention, getInterventions, recordFollowUp } = require('../controllers/interventionController');
 const { getRecommendation }                    = require('../controllers/recommendationController');
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
@@ -14,6 +14,8 @@ const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 router.route('/interventions')
     .post(recordIntervention)
     .get(getInterventions);
+
+router.post('/interventions/:id/follow-up', recordFollowUp);
 
 // ── Recommendation route ─────────────────────────────────────────────────────
 router.route('/recommendations')

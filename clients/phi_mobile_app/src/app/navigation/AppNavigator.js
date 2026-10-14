@@ -130,7 +130,7 @@ export default function AppNavigator() {
           name="Prevention"
           component={PreventionScreen}
           options={{
-            headerTitle: "Prevention Strategy",
+            headerShown: false,
             tabBarLabel: "Prevention",
           }}
         />

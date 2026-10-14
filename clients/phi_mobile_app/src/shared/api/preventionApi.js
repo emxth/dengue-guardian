@@ -33,5 +33,40 @@ export const preventionApi = {
             console.error('Error recording intervention:', error);
             throw error;
         }
+    },
+
+    // Retrieve historical field interventions from MongoDB
+    getInterventions: async (zoneId) => {
+        try {
+            const url = zoneId ? `/interventions?zoneId=${zoneId}` : '/interventions';
+            const response = await apiClient.get(url);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching interventions:', error);
+            throw error;
+        }
+    },
+
+    // Trigger continual learning model retraining with merged field outcomes
+    triggerRetrain: async () => {
+        try {
+            const response = await apiClient.post('/retrain');
+            return response.data;
+        } catch (error) {
+            console.error('Error triggering model retrain:', error);
+            throw error;
+        }
+    },
+
+    // Submit Day-7 follow-up outcome data for server-side calculations & MongoDB persistence
+    submitFollowUp: async (interventionId, followUpData) => {
+        try {
+            const idParam = interventionId || 'latest';
+            const response = await apiClient.post(`/interventions/${idParam}/follow-up`, followUpData);
+            return response.data;
+        } catch (error) {
+            console.error('Error submitting intervention follow-up:', error);
+            throw error;
+        }
     }
 };

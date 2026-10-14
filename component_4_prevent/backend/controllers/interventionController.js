@@ -2,6 +2,7 @@
 // Saves PHI intervention records to MongoDB and syncs them to FastAPI continual learning
 
 const axios = require('axios');
+const mongoose = require('mongoose');
 const InterventionRecord = require('../models/InterventionRecord');
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
@@ -119,5 +120,90 @@ exports.getInterventions = async (req, res) => {
     } catch (error) {
         console.error('[InterventionController] getInterventions error:', error.message);
         return res.status(400).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    Record Day-7 follow-up outcome & compute drops/ratings server-side
+// @route   POST /api/interventions/:id/follow-up
+exports.recordFollowUp = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { postBreedingFoci, postBreteauIndex } = req.body;
+
+        let record = null;
+        if (mongoose.Types.ObjectId.isValid(id)) {
+            record = await InterventionRecord.findById(id);
+        }
+        if (!record) {
+            // Fallback to the latest intervention record in MongoDB
+            record = await InterventionRecord.findOne().sort({ dateApplied: -1 });
+        }
+
+        if (!record) {
+            return res.status(404).json({
+                success: false,
+                error: 'Intervention record not found'
+            });
+        }
+
+        const initialFoci = record.environmentalContext?.breedingSites || 15;
+        const initialBreteau = record.environmentalContext?.mosquitoDensity || 40.0;
+
+        const postFoci = parseFloat(postBreedingFoci ?? 0);
+        const postBreteau = parseFloat(postBreteauIndex ?? 0);
+
+        // Server-side calculation using the formula: ((initialFoci - postBreedingFoci) / initialFoci) * 100
+        const fociDropPercentage = initialFoci > 0
+            ? Math.round(Math.max(0, ((initialFoci - postFoci) / initialFoci) * 100) * 10) / 10
+            : 0;
+
+        // Determine outcomeRating based on drop percentage and safe Breteau level
+        let outcomeRating = 'Moderate';
+        if (fociDropPercentage >= 70 && postBreteau <= 15) {
+            outcomeRating = 'Excellent';
+        } else if (fociDropPercentage >= 50) {
+            outcomeRating = 'Good';
+        } else if (fociDropPercentage >= 30) {
+            outcomeRating = 'Moderate';
+        } else {
+            outcomeRating = 'Needs Review';
+        }
+
+        const score = Math.min(
+            98,
+            Math.max(40, Math.round(fociDropPercentage * 0.65 + (postBreteau <= 5 ? 35 : postBreteau <= 15 ? 20 : 10)))
+        );
+
+        // Update record with follow-up metadata
+        record.followUp = {
+            date: new Date(),
+            postBreedingFoci: postFoci,
+            postBreteauIndex: postBreteau,
+            fociDropPercentage,
+            outcomeRating,
+            score
+        };
+        await record.save();
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                interventionId: record._id,
+                protocol: record.tier1MacroStrategy,
+                initialFoci,
+                postBreedingFoci: postFoci,
+                fociDropPercentage,
+                initialBreteau,
+                postBreteauIndex: postBreteau,
+                outcomeRating,
+                score,
+                isExcellent: outcomeRating === 'Excellent',
+                isSafe: postBreteau <= 10,
+                updatedRecord: record
+            }
+        });
+    } catch (error) {
+        console.error('[InterventionController] recordFollowUp error:', error.message);
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
