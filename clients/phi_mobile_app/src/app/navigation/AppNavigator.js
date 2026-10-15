@@ -5,7 +5,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { DengueGuardianColors } from "../../shared/theme/colors";
 
-import EdgeCaptureScreen from "../../features/edge_ai_capture/screens/EdgeCaptureScreen";
+import PHIDashboardScreen from "../../features/edge_ai_capture/screens/PHIDashboardScreen";
+//import EdgeCaptureScreen from "../../features/edge_ai_capture/screens/EdgeCaptureScreen";
 import SpatioMapScreen from "../../features/spatio_mapping/screens/SpatioMapScreen";
 import InspectionScreen from "../../features/phi_inspection/screens/InspectionScreen";
 import PreventionScreen from "../../features/prevention/screens/PreventionScreen";
@@ -104,7 +105,7 @@ export default function AppNavigator() {
       >
         <Tab.Screen
           name="Edge AI"
-          component={EdgeCaptureScreen}
+          component={PHIDashboardScreen}
           options={{
             headerTitle: "Edge AI Risk Node",
             tabBarLabel: "Edge AI",
@@ -137,4 +138,4 @@ export default function AppNavigator() {
       </Tab.Navigator>
     </NavigationContainer>
   );
-}
+}
