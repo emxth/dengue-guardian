@@ -8,6 +8,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 import FactorProgressBar from "../components/FactorProgressBar";
 
@@ -47,10 +48,10 @@ export default function RationaleScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <HeaderBar
-        title="DENGUE-GUARDIAN"
+        title="EXPLAINABLE AI"
         onBack={() => navigation.goBack()}
         onProfilePress={() =>
-          Alert.alert("Officer Profile", "PHI K. Perera • MOH Kaduwela Area A")
+          Alert.alert("Officer Profile", "PHI01 • Malabe Range (MOH Kaduwela)")
         }
       />
 
@@ -59,11 +60,6 @@ export default function RationaleScreen({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Sub-badge: AI Recommendation Rationale */}
-        <View style={styles.subBadgeRow}>
-          <Ionicons name="git-network-outline" size={14} color="#0D9488" style={{ marginRight: 6 }} />
-          <Text style={styles.subBadgeText}>EXPLAINABLE AI (XAI) RATIONALE</Text>
-        </View>
 
         {/* Heading */}
         <Text style={styles.mainHeading}>Why {selectedStrategy}?</Text>
@@ -84,7 +80,6 @@ export default function RationaleScreen({ navigation, route }) {
         <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardTitle}>Tree SHAP Factor Contributions</Text>
-            <Text style={styles.keyDriversText}>LIVE ATTRIBUTIONS</Text>
           </View>
 
           {/* Legend */}
@@ -148,16 +143,6 @@ export default function RationaleScreen({ navigation, route }) {
           />
           <Text style={styles.primaryButtonText}>Proceed to Record Intervention</Text>
         </TouchableOpacity>
-
-        {/* Secondary Back Link */}
-        <TouchableOpacity
-          style={styles.backLinkButton}
-          onPress={() => navigation.goBack()}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={16} color="#64748B" style={{ marginRight: 6 }} />
-          <Text style={styles.backLinkText}>Back to Recommendations</Text>
-        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -184,7 +169,7 @@ const styles = StyleSheet.create({
   subBadgeText: {
     fontSize: 11,
     fontWeight: "800",
-    color: "#0D9488",
+    color: DengueGuardianColors.primary,
     letterSpacing: 1,
   },
   mainHeading: {
@@ -195,19 +180,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   rankBanner: {
-    backgroundColor: "#EFF6FF",
+    backgroundColor: DengueGuardianColors.mintSurface,
     borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
     overflow: "hidden",
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#DBEAFE",
+    borderColor: DengueGuardianColors.accent,
   },
   rankStripe: {
     width: 4,
     alignSelf: "stretch",
-    backgroundColor: "#0D9488",
+    backgroundColor: DengueGuardianColors.primary,
   },
   rankBannerContent: {
     flex: 1,
@@ -316,15 +301,15 @@ const styles = StyleSheet.create({
     color: "#1E3A8A",
   },
   primaryButton: {
-    backgroundColor: "#0F172A",
+    backgroundColor: DengueGuardianColors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F172A",
+    shadowColor: DengueGuardianColors.primary,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.25,
     shadowRadius: 5,
     elevation: 3,
     marginBottom: 12,
@@ -344,6 +329,6 @@ const styles = StyleSheet.create({
   backLinkText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#475569",
+    color: DengueGuardianColors.primary,
   },
 });

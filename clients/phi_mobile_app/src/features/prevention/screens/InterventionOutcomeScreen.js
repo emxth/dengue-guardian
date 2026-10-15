@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { preventionApi } from "../../../shared/api/preventionApi";
+import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
 export default function InterventionOutcomeScreen({ navigation, route }) {
@@ -91,11 +92,10 @@ export default function InterventionOutcomeScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <HeaderBar
-        title="DENGUE-GUARDIAN"
-        subtitle="Intervention Outcome"
+        title="Intervention Outcome"
         onBack={() => navigation.goBack()}
         onProfilePress={() =>
-          Alert.alert("Officer Profile", "PHI Bandara • MOH Kaduwela Area A")
+          Alert.alert("Officer Profile", "PHI01 • Malabe Range (MOH Kaduwela)")
         }
       />
 
@@ -104,21 +104,17 @@ export default function InterventionOutcomeScreen({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Sub-header area */}
-        <Text style={styles.subHeaderText}>
-          Intervention Synced • Operational Verification
-        </Text>
 
         {/* Top Info Banner */}
         <View style={styles.topInfoBanner}>
           <Ionicons
             name="cloud-done-outline"
             size={18}
-            color="#1E40AF"
+            color={DengueGuardianColors.primary}
             style={{ marginRight: 8 }}
           />
           <Text style={styles.topInfoText}>
-            Logged to MongoDB: {protocol} by PHI Bandara
+            Logged to MongoDB: {protocol} by PHI01
           </Text>
         </View>
 
@@ -249,7 +245,7 @@ export default function InterventionOutcomeScreen({ navigation, route }) {
             style={{ marginRight: 8 }}
           />
           <Text style={styles.primaryButtonText}>
-            Proceed to Model Diagnostics
+            Proceed
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -278,7 +274,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   topInfoBanner: {
-    backgroundColor: "#EFF6FF",
+    backgroundColor: DengueGuardianColors.mintSurface,
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -286,12 +282,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#DBEAFE",
+    borderColor: DengueGuardianColors.accent,
   },
   topInfoText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#1E40AF",
+    color: DengueGuardianColors.primary,
     fontFamily: "monospace",
     flex: 1,
   },
@@ -451,7 +447,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   scoreBadge: {
-    backgroundColor: "#DBEAFE",
+    backgroundColor: DengueGuardianColors.mintSurface,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
@@ -459,19 +455,19 @@ const styles = StyleSheet.create({
   scoreBadgeText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#1E40AF",
+    color: DengueGuardianColors.primary,
     fontFamily: "monospace",
   },
   primaryButton: {
-    backgroundColor: "#0F172A",
+    backgroundColor: DengueGuardianColors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F172A",
+    shadowColor: DengueGuardianColors.primary,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.25,
     shadowRadius: 5,
     elevation: 3,
   },

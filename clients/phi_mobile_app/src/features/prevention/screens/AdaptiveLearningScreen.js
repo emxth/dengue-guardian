@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { preventionApi } from "../../../shared/api/preventionApi";
+import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
 export default function AdaptiveLearningScreen({ navigation, route }) {
@@ -59,24 +60,10 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <HeaderBar
-        title="DENGUE-GUARDIAN"
-        subtitle="Model Diagnostics"
+        title="Adaptive Learning"
         onBack={() => navigation.goBack()}
-        rightAction={
-          <TouchableOpacity
-            style={styles.filterButton}
-            onPress={() =>
-              Alert.alert(
-                "Filter Diagnostics",
-                "Displaying dynamic XGBoost continual training parameters."
-              )
-            }
-          >
-            <Ionicons name="options-outline" size={18} color="#0F172A" />
-          </TouchableOpacity>
-        }
         onProfilePress={() =>
-          Alert.alert("Officer Profile", "PHI K. Perera • Moh Kaduwela Area A")
+          Alert.alert("Officer Profile", "PHI01 • Malabe Range (MOH Kaduwela)")
         }
       />
 
@@ -93,10 +80,6 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
           </View>
           <Text style={styles.versionText}>v4.2.8</Text>
         </View>
-
-        {/* Heading */}
-        <Text style={styles.pageTitle}>Adaptive Learning</Text>
-        <Text style={styles.pageSubtitle}>Closed-Loop Model Evolution</Text>
 
         {/* Status Synchronized Banner */}
         <View style={styles.statusBanner}>
@@ -181,57 +164,6 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Closed-Loop Flow Section */}
-        <View style={styles.flowSectionHeader}>
-          <Text style={styles.flowTitle}>CLOSED-LOOP FLOW</Text>
-          <Text style={styles.continuousText}>Continuous</Text>
-        </View>
-
-        <View style={styles.flowDiagramCard}>
-          {/* Step 1 */}
-          <View style={styles.flowStep}>
-            <View style={[styles.flowIconBox, { backgroundColor: "#EFF6FF" }]}>
-              <Ionicons name="checkbox-outline" size={18} color="#1E40AF" />
-            </View>
-            <Text style={styles.flowStepTitle}>PHI Field{"\n"}Outcome</Text>
-            <Text style={styles.flowStepSub}>Telemetry{"\n"}Ingested</Text>
-          </View>
-
-          {/* Arrow */}
-          <Ionicons
-            name="arrow-forward"
-            size={16}
-            color="#94A3B8"
-            style={styles.flowArrow}
-          />
-
-          {/* Step 2 */}
-          <View style={styles.flowStep}>
-            <View style={[styles.flowIconBox, { backgroundColor: "#EEF2FF" }]}>
-              <Ionicons name="sync-outline" size={18} color="#4338CA" />
-            </View>
-            <Text style={styles.flowStepTitle}>Model{"\n"}Retrained</Text>
-            <Text style={styles.flowStepSub}>Weight{"\n"}Dynamic Shift</Text>
-          </View>
-
-          {/* Arrow */}
-          <Ionicons
-            name="arrow-forward"
-            size={16}
-            color="#94A3B8"
-            style={styles.flowArrow}
-          />
-
-          {/* Step 3 */}
-          <View style={styles.flowStep}>
-            <View style={[styles.flowIconBox, { backgroundColor: "#CCFBF1" }]}>
-              <Ionicons name="shield-checkmark" size={18} color="#0D9488" />
-            </View>
-            <Text style={styles.flowStepTitle}>Improved{"\n"}Protocol</Text>
-            <Text style={styles.flowStepSub}>Optimized{"\n"}Action</Text>
-          </View>
-        </View>
-
         {/* Continual Learning Live Retraining Card */}
         {retrainResult && (
           <View style={styles.retrainResultCard}>
@@ -275,23 +207,7 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
             />
           )}
           <Text style={styles.retrainButtonText}>
-            {isRetraining ? "Retraining XGBoost Model..." : "Trigger Continual Learning Retrain"}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={handleViewUpdatedRecommendations}
-          activeOpacity={0.85}
-        >
-          <Ionicons
-            name="refresh-circle-outline"
-            size={18}
-            color="#FFFFFF"
-            style={{ marginRight: 8 }}
-          />
-          <Text style={styles.primaryButtonText}>
-            View Updated Recommendations
+            {isRetraining ? "Retraining XGBoost Model..." : "Retrain AI Model"}
           </Text>
         </TouchableOpacity>
 
@@ -303,7 +219,7 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
           <Ionicons
             name="grid-outline"
             size={16}
-            color="#0F172A"
+            color={DengueGuardianColors.primary}
             style={{ marginRight: 8 }}
           />
           <Text style={styles.dashboardButtonText}>Return to Dashboard</Text>
@@ -325,10 +241,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 24,
-  },
-  filterButton: {
-    padding: 6,
-    marginRight: 4,
   },
   topVersionRow: {
     flexDirection: "row",
@@ -617,15 +529,15 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   primaryButton: {
-    backgroundColor: "#0F172A",
+    backgroundColor: DengueGuardianColors.secondary,
     borderRadius: 12,
     paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F172A",
+    shadowColor: DengueGuardianColors.secondary,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.2,
     shadowRadius: 5,
     elevation: 3,
     marginBottom: 10,
@@ -636,7 +548,9 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   dashboardButton: {
-    backgroundColor: "#EFF6FF",
+    backgroundColor: DengueGuardianColors.mintSurface,
+    borderWidth: 1,
+    borderColor: DengueGuardianColors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     flexDirection: "row",
@@ -646,18 +560,18 @@ const styles = StyleSheet.create({
   dashboardButtonText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#0F172A",
+    color: DengueGuardianColors.primary,
   },
   retrainButton: {
-    backgroundColor: "#0D9488",
+    backgroundColor: DengueGuardianColors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0D9488",
+    shadowColor: DengueGuardianColors.primary,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,
     shadowRadius: 5,
     elevation: 3,
     marginBottom: 10,

@@ -1,14 +1,16 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { DengueGuardianColors } from "../../../shared/theme/colors";
 
 export default function FactorProgressBar({ label, valueText, percentage, barColor }) {
   const clamped = Math.min(Math.max(percentage, 0), 100);
+  const activeColor = barColor || DengueGuardianColors.primary;
 
   return (
     <View style={styles.container}>
       <View style={styles.labelRow}>
         <Text style={styles.label}>{label}</Text>
-        <Text style={[styles.valueText, { color: barColor || "#0F172A" }]}>
+        <Text style={[styles.valueText, { color: activeColor }]}>
           {valueText || `${clamped}%`}
         </Text>
       </View>
@@ -18,7 +20,7 @@ export default function FactorProgressBar({ label, valueText, percentage, barCol
             styles.fill,
             {
               width: `${clamped}%`,
-              backgroundColor: barColor || "#0F172A",
+              backgroundColor: activeColor,
             },
           ]}
         />

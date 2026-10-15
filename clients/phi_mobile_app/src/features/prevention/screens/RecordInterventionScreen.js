@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { preventionApi } from "../../../shared/api/preventionApi";
+import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
 export default function RecordInterventionScreen({ navigation, route }) {
@@ -74,8 +75,8 @@ export default function RecordInterventionScreen({ navigation, route }) {
       const calculatedScore = parsedBreteau <= 5 ? 92.0 : parsedBreteau <= 15 ? 78.5 : 52.0;
 
       const recordPayload = {
-        zoneId: "ZONE-KADUWELA-A",
-        phiId: "PHI-OFFICER-418",
+        zoneId: "LOC004",
+        phiId: "PHI01",
         temperature: zoneContext?.temperature || 29.5,
         rainfall: zoneContext?.rainfall || 85.0,
         cumulative_rainfall_14_days: zoneContext?.cumulative_rainfall_14_days || 120.0,
@@ -114,11 +115,10 @@ export default function RecordInterventionScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <HeaderBar
-        title="DENGUE-GUARDIAN"
-        subtitle="Record Intervention"
+        title="Record Field Intervention"
         onBack={() => navigation.goBack()}
         onProfilePress={() =>
-          Alert.alert("Officer Profile", "PHI Bandara • MOH Kaduwela Area A")
+          Alert.alert("Officer Profile", "PHI01 • Malabe Range (MOH Kaduwela)")
         }
       />
 
@@ -127,16 +127,22 @@ export default function RecordInterventionScreen({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Title row */}
-        <View style={styles.titleRow}>
-          <Text style={styles.mainTitle}>Record Field Intervention</Text>
-          <View style={styles.areaBadge}>
-            <Text style={styles.areaBadgeText}>Zone Kaduwela-A</Text>
+        {/* Administrative Area Bar */}
+        <View style={styles.areaCard}>
+          <View style={styles.areaLeft}>
+            <View style={styles.locationIconBox}>
+              <Ionicons name="location" size={18} color={DengueGuardianColors.primary} />
+            </View>
+            <View style={styles.areaTextContainer}>
+              <Text style={styles.areaMainText}>
+                Thalangama North A • LOC004
+              </Text>
+              <Text style={styles.areaSubText}>
+                Malabe Range
+              </Text>
+            </View>
           </View>
         </View>
-        <Text style={styles.subtitleText}>
-          Sentinel Sector • Vector Control Protocol
-        </Text>
 
         {/* Card 1: SELECT PROTOCOL */}
         <View style={styles.card}>
@@ -183,7 +189,7 @@ export default function RecordInterventionScreen({ navigation, route }) {
             <Text style={styles.sectionHeader}>RESPONSIBLE OFFICER</Text>
             <View style={styles.infoRow}>
               <Ionicons name="id-card-outline" size={16} color="#0F172A" />
-              <Text style={styles.columnValue}>PHI Bandara (#418)</Text>
+              <Text style={styles.columnValue}>PHI01 (Malabe Range)</Text>
             </View>
           </View>
         </View>
@@ -198,12 +204,12 @@ export default function RecordInterventionScreen({ navigation, route }) {
             multiline
             numberOfLines={2}
           />
-          <View style={styles.neutralizedRow}>
+          {/*<View style={styles.neutralizedRow}>
             <Ionicons name="checkmark-circle-outline" size={16} color="#0D9488" />
             <Text style={styles.neutralizedText}>
               {clearedSites} Breeding Nodes Neutralized
             </Text>
-          </View>
+          </View>*/}
 
           {/* Post-Action Breteau Count Input */}
           <View style={styles.breteauSubInput}>
@@ -253,7 +259,7 @@ export default function RecordInterventionScreen({ navigation, route }) {
               <Ionicons
                 name="camera-outline"
                 size={18}
-                color="#1E3A8A"
+                color={DengueGuardianColors.primary}
                 style={{ marginRight: 6 }}
               />
               <Text style={styles.retakeText}>Retake or Add Photo</Text>
@@ -272,7 +278,7 @@ export default function RecordInterventionScreen({ navigation, route }) {
               <Ionicons
                 name="calendar"
                 size={12}
-                color="#1E40AF"
+                color={DengueGuardianColors.primary}
                 style={{ marginRight: 4 }}
               />
               <Text style={styles.dateBadgeText}>{followUpDateStr}</Text>
@@ -302,14 +308,7 @@ export default function RecordInterventionScreen({ navigation, route }) {
           </Text>
         </TouchableOpacity>
 
-        {/* Secondary Draft Link */}
-        <TouchableOpacity
-          style={styles.draftLink}
-          onPress={() => navigation.goBack()}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.draftLinkText}>Save Draft & Exit</Text>
-        </TouchableOpacity>
+
       </ScrollView>
     </View>
   );
@@ -328,33 +327,62 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 24,
   },
-  titleRow: {
+  areaCard: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: DengueGuardianColors.surface,
+    borderWidth: 1,
+    borderColor: DengueGuardianColors.borderLight,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+    shadowColor: DengueGuardianColors.darkBase,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  mainTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#0F172A",
-    letterSpacing: -0.3,
+  areaLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 8,
   },
-  areaBadge: {
-    backgroundColor: "#DBEAFE",
+  locationIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: DengueGuardianColors.mintSurface,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  areaTextContainer: {
+    flex: 1,
+  },
+  areaMainText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: DengueGuardianColors.darkBase,
+  },
+  areaSubText: {
+    fontSize: 11,
+    color: DengueGuardianColors.textMuted,
+    marginTop: 2,
+  },
+  statusTag: {
+    backgroundColor: DengueGuardianColors.mintSurface,
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 6,
   },
-  areaBadgeText: {
-    fontSize: 11,
+  statusTagText: {
+    fontSize: 10,
     fontWeight: "700",
-    color: "#1E40AF",
-  },
-  subtitleText: {
-    fontSize: 13,
-    color: "#64748B",
-    marginTop: 4,
-    marginBottom: 16,
+    color: DengueGuardianColors.primary,
+    letterSpacing: 0.4,
   },
   card: {
     backgroundColor: "#FFFFFF",
@@ -398,13 +426,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   protocolPillActive: {
-    backgroundColor: "#0F172A",
+    backgroundColor: DengueGuardianColors.primary,
   },
   activeDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#10B981",
+    backgroundColor: "#FFFFFF",
     marginRight: 6,
   },
   protocolText: {
@@ -526,7 +554,9 @@ const styles = StyleSheet.create({
   },
   retakeButton: {
     flex: 1,
-    backgroundColor: "#EFF6FF",
+    backgroundColor: DengueGuardianColors.mintSurface,
+    borderWidth: 1,
+    borderColor: DengueGuardianColors.primary,
     borderRadius: 10,
     paddingVertical: 14,
     flexDirection: "row",
@@ -537,7 +567,7 @@ const styles = StyleSheet.create({
   retakeText: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#1E3A8A",
+    color: DengueGuardianColors.primary,
   },
   followUpRow: {
     flexDirection: "row",
@@ -552,7 +582,7 @@ const styles = StyleSheet.create({
   dateBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#DBEAFE",
+    backgroundColor: DengueGuardianColors.mintSurface,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
@@ -560,18 +590,18 @@ const styles = StyleSheet.create({
   dateBadgeText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#1E40AF",
+    color: DengueGuardianColors.primary,
   },
   primaryButton: {
-    backgroundColor: "#0F172A",
+    backgroundColor: DengueGuardianColors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F172A",
+    shadowColor: DengueGuardianColors.primary,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.25,
     shadowRadius: 5,
     elevation: 3,
     marginTop: 8,

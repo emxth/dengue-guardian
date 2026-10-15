@@ -1,7 +1,8 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { DengueGuardianColors } from "../../../shared/theme/colors";
 
 export default function HeaderBar({
   title = "DENGUE-GUARDIAN",
@@ -26,7 +27,7 @@ export default function HeaderBar({
               style={styles.backButton}
               activeOpacity={0.7}
             >
-              <Ionicons name="arrow-back" size={22} color="#0F172A" />
+              <Ionicons name="arrow-back" size={24} color={DengueGuardianColors.surface} />
             </TouchableOpacity>
           ) : (
             <View style={{ width: 28 }} />
@@ -35,13 +36,8 @@ export default function HeaderBar({
 
         {/* Center: Branding & Subtitle */}
         <View style={styles.centerContainer}>
-          <View style={styles.brandRow}>
-            <View style={styles.iconCircle}>
-              <Ionicons name="shield-checkmark" size={13} color="#0D9488" />
-            </View>
-            <Text style={styles.brandTitle}>{title}</Text>
-          </View>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+          <Text style={styles.brandTitle} numberOfLines={1}>{title}</Text>
+          {subtitle ? <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text> : null}
         </View>
 
         {/* Right: Actions */}
@@ -52,7 +48,11 @@ export default function HeaderBar({
             style={styles.profileButton}
             activeOpacity={0.8}
           >
-            <Ionicons name="person" size={14} color="#FFFFFF" />
+            <Image
+              source={require("../../../../assets/shield_transparent.png")}
+              style={{ width: 30, height: 30 }}
+              resizeMode="contain"
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -62,10 +62,13 @@ export default function HeaderBar({
 
 const styles = StyleSheet.create({
   headerContainer: {
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
-    paddingBottom: 10,
+    backgroundColor: DengueGuardianColors.primary,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    paddingBottom: 12,
     paddingHorizontal: 16,
   },
   contentRow: {
@@ -85,31 +88,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#CCFBF1",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 6,
-  },
   brandTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#0F172A",
-    letterSpacing: 1.2,
+    fontSize: 18,
+    fontWeight: "700",
+    color: DengueGuardianColors.surface,
+    letterSpacing: 0.3,
   },
   subtitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#0F172A",
-    marginTop: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: DengueGuardianColors.accent,
+    marginTop: 2,
+    letterSpacing: 0.2,
   },
   rightContainer: {
     width: 60,
@@ -118,10 +108,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   profileButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "#0F172A",
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 8,

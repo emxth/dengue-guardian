@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { preventionApi } from "../../../shared/api/preventionApi";
+import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
 export default function RecommendationsScreen({ navigation }) {
@@ -71,11 +72,9 @@ export default function RecommendationsScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <HeaderBar
-        title="Dengue-Guardian"
-        showBack={navigation.canGoBack()}
-        onBack={() => navigation.goBack()}
+        title="Prevention Recommendations"
         onProfilePress={() =>
-          Alert.alert("Officer Profile", "PHI K. Perera • MOH Kaduwela Area A")
+          Alert.alert("Officer Profile", "PHI01 • Malabe Range (MOH Kaduwela)")
         }
       />
 
@@ -104,13 +103,19 @@ export default function RecommendationsScreen({ navigation }) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Title & Active Alert Badge */}
-          <View style={styles.titleRow}>
-            <View style={styles.titleTextContainer}>
-              <Text style={styles.pageTitle}>Prevention Recommendations</Text>
-              <View style={styles.locationRow}>
-                <Ionicons name="location-outline" size={14} color="#64748B" />
-                <Text style={styles.locationText}>Kaduwela – Area A</Text>
+          {/* Administrative Area & Active Alert Card */}
+          <View style={styles.areaCard}>
+            <View style={styles.areaLeft}>
+              <View style={styles.locationIconBox}>
+                <Ionicons name="location" size={18} color={DengueGuardianColors.primary} />
+              </View>
+              <View style={styles.areaTextContainer}>
+                <Text style={styles.areaMainText}>
+                  Thalangama North A (LOC004)
+                </Text>
+                <Text style={styles.areaSubText}>
+                  Malabe Range • MOH Kaduwela
+                </Text>
               </View>
             </View>
             <View
@@ -174,8 +179,8 @@ export default function RecommendationsScreen({ navigation }) {
               strat.micro_strategy && strat.micro_strategy !== "None"
                 ? `Protocol: ${strat.micro_strategy}`
                 : isTopRank && aiData.top_recommendation?.application_method
-                ? aiData.top_recommendation.application_method
-                : "Manual Physical Action";
+                  ? aiData.top_recommendation.application_method
+                  : "Manual Physical Action";
 
             return (
               <View
@@ -260,7 +265,7 @@ export default function RecommendationsScreen({ navigation }) {
                     <Ionicons
                       name="swap-horizontal"
                       size={16}
-                      color="#1E3A8A"
+                      color={DengueGuardianColors.primary}
                       style={{ marginRight: 6 }}
                     />
                     <Text style={styles.secondaryOptionButtonText}>
@@ -282,10 +287,10 @@ export default function RecommendationsScreen({ navigation }) {
               <Ionicons
                 name="analytics-outline"
                 size={18}
-                color="#1E3A8A"
+                color={DengueGuardianColors.primary}
                 style={{ marginRight: 6 }}
               />
-              <Text style={styles.actionChipText}>Explain AI (XAI)</Text>
+              <Text style={styles.actionChipText}>Explain AI</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -296,7 +301,7 @@ export default function RecommendationsScreen({ navigation }) {
               <Ionicons
                 name="refresh-outline"
                 size={18}
-                color="#1E3A8A"
+                color={DengueGuardianColors.primary}
                 style={{ marginRight: 6 }}
               />
               <Text style={styles.actionChipText}>Refresh</Text>
@@ -365,32 +370,50 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 24,
   },
-  titleRow: {
+  areaCard: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 14,
+    backgroundColor: DengueGuardianColors.surface,
+    borderWidth: 1,
+    borderColor: DengueGuardianColors.borderLight,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+    shadowColor: DengueGuardianColors.darkBase,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  titleTextContainer: {
+  areaLeft: {
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
     marginRight: 8,
   },
-  pageTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#0F172A",
-    letterSpacing: -0.3,
-  },
-  locationRow: {
-    flexDirection: "row",
+  locationIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: DengueGuardianColors.mintSurface,
     alignItems: "center",
-    marginTop: 4,
+    justifyContent: "center",
+    marginRight: 10,
   },
-  locationText: {
+  areaTextContainer: {
+    flex: 1,
+  },
+  areaMainText: {
     fontSize: 13,
-    color: "#475569",
-    marginLeft: 4,
-    fontWeight: "500",
+    fontWeight: "700",
+    color: DengueGuardianColors.darkBase,
+  },
+  areaSubText: {
+    fontSize: 11,
+    color: DengueGuardianColors.textMuted,
+    marginTop: 2,
   },
   alertBadge: {
     flexDirection: "row",
@@ -453,7 +476,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   strategyCardActive: {
-    borderColor: "#0F172A",
+    borderColor: DengueGuardianColors.primary,
     borderWidth: 2,
   },
   strategyCardSecondary: {
@@ -477,7 +500,7 @@ const styles = StyleSheet.create({
   highBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#CCFBF1",
+    backgroundColor: DengueGuardianColors.mintSurface,
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 12,
@@ -486,13 +509,13 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#0D9488",
+    backgroundColor: DengueGuardianColors.primary,
     marginRight: 5,
   },
   highBadgeText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#0F766E",
+    color: DengueGuardianColors.primary,
   },
   moderateBadge: {
     flexDirection: "row",
@@ -538,7 +561,7 @@ const styles = StyleSheet.create({
   effValue: {
     fontSize: 14,
     fontWeight: "800",
-    color: "#0D9488",
+    color: DengueGuardianColors.primary,
   },
   bulletRow: {
     flexDirection: "row",
@@ -552,15 +575,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   primaryButton: {
-    backgroundColor: "#0F172A",
+    backgroundColor: DengueGuardianColors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#0F172A",
+    shadowColor: DengueGuardianColors.primary,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.25,
     shadowRadius: 5,
     elevation: 3,
   },
@@ -571,7 +594,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   secondaryOptionButton: {
-    backgroundColor: "#EFF6FF",
+    backgroundColor: DengueGuardianColors.mintSurface,
+    borderWidth: 1,
+    borderColor: DengueGuardianColors.primary,
     borderRadius: 12,
     paddingVertical: 12,
     flexDirection: "row",
@@ -581,7 +606,7 @@ const styles = StyleSheet.create({
   secondaryOptionButtonText: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#1E3A8A",
+    color: DengueGuardianColors.primary,
   },
   bottomActionsRow: {
     flexDirection: "row",
@@ -594,7 +619,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EFF6FF",
+    backgroundColor: DengueGuardianColors.mintSurface,
+    borderWidth: 1,
+    borderColor: DengueGuardianColors.primary,
     borderRadius: 12,
     paddingVertical: 12,
     marginHorizontal: 4,
@@ -602,6 +629,6 @@ const styles = StyleSheet.create({
   actionChipText: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#1E3A8A",
+    color: DengueGuardianColors.primary,
   },
 });
