@@ -1,16 +1,26 @@
-import random
+import serial
+import pynmea2
 from config import MOCK_HARDWARE, DEFAULT_LATITUDE, DEFAULT_LONGITUDE
 
 def get_location() -> tuple[float, float]:
     """
-    Acquire GPS coordinates from NEO-6M.
+    Acquire GPS coordinates from the U-blox 7 USB module.
     Returns: (latitude, longitude)
     """
     if MOCK_HARDWARE:
-        # Simulate slight GPS drift around Kaduwela MOH area
-        lat = round(DEFAULT_LATITUDE + random.uniform(-0.002, 0.002), 6)
-        lon = round(DEFAULT_LONGITUDE + random.uniform(-0.002, 0.002), 6)
-        return lat, lon
+        return DEFAULT_LATITUDE, DEFAULT_LONGITUDE
         
-    # Real UART parsing will be injected here in Phase 2
-    raise NotImplementedError("Physical GPS reading pending hardware mount.")
+    try:
+        # ttyACM0 is the standard Linux endpoint for USB CDC communication devices
+        with serial.Serial('/dev/ttyACM0', baudrate=9600, timeout=1) as ser:
+            for _ in range(10): 
+                line = ser.readline().decode('ascii', errors='replace').strip()
+                if line.startswith('$GPGGA'):
+                    msg = pynmea2.parse(line)
+                    if msg.latitude and msg.longitude:
+                        return round(msg.latitude, 6), round(msg.longitude, 6)
+        
+        return 0.0, 0.0
+    except Exception as e:
+        print(f"Hardware Error: {e}")
+        return 0.0, 0.0

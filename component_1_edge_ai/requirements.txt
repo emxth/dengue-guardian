@@ -16,4 +16,6 @@ pytest>=7.4.0
 
 # API & Inter-Component Integration
 fastapi>=0.104.0
-uvicorn>=0.24.0
+uvicorn>=0.24.0Adafruit-Blinka==9.2.0
+Adafruit-Blinka-Raspberry-Pi5-Neopixel==1.0.0rc2
+adafruit-circuitpython-dht==4.0.12

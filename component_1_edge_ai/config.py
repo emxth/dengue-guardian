@@ -5,11 +5,20 @@ Controls environment switching, sensor polling parameters, and storage paths.
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load variables from the .env file
+load_dotenv()
 
 # Base Directory Paths
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 MODELS_DIR = BASE_DIR / "models"
+
+# Sensor Polling Intervals (in seconds)
+DHT_READ_INTERVAL = 30.0
+GPS_READ_INTERVAL = 5.0
+CAMERA_CAPTURE_INTERVAL = 600.0  # 10 minutes
 
 # Ensure runtime directories exist
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -18,7 +27,11 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 # Hardware Abstraction Mode
 # Set to True when developing on non-Raspberry Pi environments (e.g., development laptop)
 # Set to False when deploying to the physical Raspberry Pi 4
-MOCK_HARDWARE = os.getenv("MOCK_HARDWARE", "True").lower() in ("true", "1")
+
+# MOCK_HARDWARE = os.getenv("MOCK_HARDWARE", "True").lower() in ("true", "1")
+
+# Disables simulated coordinates and activates physical serial reading
+MOCK_HARDWARE = False
 
 # Database Configuration
 DATABASE_PATH = DATA_DIR / "dengue_edge.db"
