@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -13,8 +14,11 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 import sys
 
+# Append 'src' so Python can find both 'engine' and 'api' folders
 sys.path.append(os.path.join(BASE_DIR, "src"))
+
 from engine.stgnn_model import AdaptiveSTGNN
+from api.tasks import process_edge_telemetry
 
 # Load Data and Edge Index (For prototype purposes, we read the CSVs to get the graph structure)
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -113,4 +117,20 @@ def run_digital_twin(req: SimulationRequest):
         "baseline_forecast": round(base_pred, 1),
         "simulated_forecast": round(sim_pred, 1),
         "cases_averted": round(base_pred - sim_pred, 1),
+    }
+
+
+@app.post("/api/v1/ingest/vector-data")
+def ingest_vector_data(payload: dict[str, Any]):
+    """
+    High-throughput ingestion endpoint for Component 1 (Edge AI).
+    Instead of processing the data immediately, it queues it in Redis via Celery.
+    """
+    # .delay() sends the payload to Redis and immediately returns
+    task = process_edge_telemetry.delay(payload)
+
+    return {
+        "status": "queued",
+        "task_id": task.id,
+        "message": "Data payload pushed to Redis broker for asynchronous processing.",
     }
