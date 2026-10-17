@@ -11,5 +11,6 @@ matplotlib
 torch --index-url https://download.pytorch.org/whl/cpu
 torch-geometric
 shap
-captumcelery
+captum
+celery
 redis
