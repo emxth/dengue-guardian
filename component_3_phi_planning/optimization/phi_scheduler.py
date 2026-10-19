@@ -244,6 +244,8 @@ def solve_schedule(tasks, phis, plan_date):
     model.Maximize(sum(priority_terms))
     
     solver = cp_model.CpSolver()
+    solver.parameters.num_search_workers = 1
+    solver.parameters.random_seed = 42
     solver.parameters.max_time_in_seconds = 20
     status = solver.Solve(model)
 

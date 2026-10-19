@@ -2,6 +2,7 @@
 """Planning endpoints for the C3 PHI Planning API."""
 
 import csv
+import math
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -9,9 +10,17 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from component_3_phi_planning.api.task_store import (
+    NewInspectionTask,
+    load_submitted_tasks,
+    save_submitted_task,
+)
 from component_3_phi_planning.prioritization.score_tasks import (
+    get_priority_level,
+    score_case_risk,
     score_cases,
     score_complaints,
+    score_complaint_urgency,
 )
 from component_3_phi_planning.optimization.phi_scheduler import (
     load_phis,
@@ -132,6 +141,101 @@ def get_priorities(
             detail=f"Could not calculate priority scores: {exc}",
         ) from exc
 
+    sqlite_task_ids = {
+        str(item.get("task_id"))
+        for item in cases + complaints
+        if item.get("task_id") is not None
+    }
+    sqlite_task_ids.update(
+        str(item.get("complaint_id"))
+        for item in complaints
+        if item.get("complaint_id") is not None
+    )
+    submitted_cases = []
+    submitted_complaints = []
+
+    for task in load_submitted_tasks():
+        if not isinstance(task, dict):
+            continue
+
+        task_id = task.get("scenario_task_id") or task.get("task_id")
+        source_id = task.get("source_id")
+        priority_score = task.get("priority_score")
+        priority_level = task.get("priority_level")
+        location_id = task.get("location_id")
+        planning_date = task.get("planning_date")
+        priority_reason = task.get("priority_reason")
+
+        try:
+            numeric_score = float(priority_score)
+            parsed_date = date.fromisoformat(str(planning_date))
+        except (TypeError, ValueError):
+            continue
+
+        if (
+            not task_id
+            or not location_id
+            or location_id not in location_map
+            or parsed_date.isoformat() != planning_date
+            or not priority_reason
+            or not math.isfinite(numeric_score)
+            or priority_level not in {"High", "Medium", "Low"}
+            or str(task_id) in sqlite_task_ids
+            or (source_id is not None and str(source_id) in sqlite_task_ids)
+        ):
+            continue
+
+        location = location_map.get(location_id, {})
+        priority_task = {
+            **task,
+            "task_id": task_id,
+            "priority_score": numeric_score,
+            "location_name": task.get(
+                "location_name", location.get("location_name", "Name unavailable")
+            ),
+            "location_label": task.get(
+                "location_label", location.get("location_label", "Unknown location")
+            ),
+            "phi_range": task.get(
+                "phi_range", location.get("phi_range", "Unknown Range")
+            ),
+        }
+
+        if task.get("task_type") == "Dengue Case Inspection":
+            risk_indicator = task.get("risk_indicator")
+            try:
+                numeric_risk = float(risk_indicator)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(numeric_risk) or not 0 <= numeric_risk <= 1:
+                continue
+            expected_score, _ = score_case_risk(numeric_risk)
+            if (
+                expected_score != numeric_score
+                or priority_level != get_priority_level(expected_score)
+                or task.get("urgency") is not None
+                or task.get("complaint_type") is not None
+            ):
+                continue
+            priority_task["risk_indicator"] = numeric_risk
+            priority_task["notification_date"] = planning_date
+            submitted_cases.append(priority_task)
+        elif task.get("task_type") == "Citizen Complaint":
+            if not task.get("urgency") or not task.get("complaint_type"):
+                continue
+            expected_score, _ = score_complaint_urgency(task["urgency"])
+            if (
+                expected_score != numeric_score
+                or priority_level != get_priority_level(expected_score)
+                or task.get("risk_indicator") is not None
+            ):
+                continue
+            priority_task["received_date"] = planning_date
+            submitted_complaints.append(priority_task)
+
+    returned_cases = cases[:limit] + submitted_cases
+    returned_complaints = complaints[:limit] + submitted_complaints
+
     return {
         "data_mode": "synthetic_research_data",
         "scoring_policy": "provisional",
@@ -139,14 +243,150 @@ def get_priorities(
             "Results use synthetic research data and provisional rules. "
             "They are not validated operational PHI recommendations."
         ),
-        "total_cases": len(cases),
-        "total_complaints": len(complaints),
-        "returned_cases": min(limit, len(cases)),
-        "returned_complaints": min(limit, len(complaints)),
+        "total_cases": len(cases) + len(submitted_cases),
+        "total_complaints": len(complaints) + len(submitted_complaints),
+        "returned_cases": len(returned_cases),
+        "returned_complaints": len(returned_complaints),
         "locations": location_map,
-        "cases": cases[:limit],
-        "complaints": complaints[:limit],
+        "cases": returned_cases,
+        "complaints": returned_complaints,
     }
+
+
+@router.get("/locations")
+def get_locations():
+    """Return valid synthetic locations for the new-task form."""
+
+    if not DATABASE_PATH.is_file():
+        raise HTTPException(
+            status_code=500,
+            detail="Synthetic research database was not found.",
+        )
+
+    database_uri = DATABASE_PATH.resolve().as_uri() + "?mode=ro"
+    try:
+        with sqlite3.connect(database_uri, uri=True) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT
+                    locations.location_id,
+                    locations.moh_area,
+                    locations.phi_range,
+                    locations.village_area,
+                    locations.village_area AS location_name,
+                    locations.location_label,
+                    locations.data_status,
+                    risk.risk_indicator
+                FROM Locations AS locations
+                LEFT JOIN (
+                    SELECT
+                        location_id,
+                        AVG(risk_indicator) AS risk_indicator
+                    FROM Case_Notifications
+                    WHERE risk_indicator IS NOT NULL
+                        AND risk_indicator BETWEEN 0 AND 1
+                    GROUP BY location_id
+                ) AS risk
+                    ON risk.location_id = locations.location_id
+                ORDER BY
+                    locations.phi_range,
+                    locations.village_area,
+                    locations.location_id
+                """
+            ).fetchall()
+        return {
+            "data_mode": "synthetic_research_data",
+            "locations": [dict(row) for row in rows],
+            "total_locations": len(rows),
+        }
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not retrieve locations: {exc}",
+        ) from exc
+
+
+@router.post("/tasks", status_code=201)
+def create_inspection_task(request: NewInspectionTask):
+    """Validate and save a new synthetic inspection task."""
+
+    if not DATABASE_PATH.is_file():
+        raise HTTPException(
+            status_code=500,
+            detail="Synthetic research database was not found.",
+        )
+
+    planning_date = request.planning_date.isoformat()
+    database_uri = DATABASE_PATH.resolve().as_uri() + "?mode=ro"
+    try:
+        with sqlite3.connect(database_uri, uri=True) as connection:
+            connection.row_factory = sqlite3.Row
+            location_row = connection.execute(
+                """
+                SELECT
+                    location_id,
+                    moh_area,
+                    phi_range,
+                    village_area,
+                    village_area AS location_name,
+                    location_label,
+                    data_status,
+                    (
+                        SELECT AVG(risk_indicator)
+                        FROM Case_Notifications
+                        WHERE Case_Notifications.location_id = Locations.location_id
+                            AND risk_indicator IS NOT NULL
+                            AND risk_indicator BETWEEN 0 AND 1
+                    ) AS risk_indicator
+                FROM Locations
+                WHERE location_id = ?
+                """,
+                (request.location_id,),
+            ).fetchone()
+            if location_row is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Select a valid location from the available "
+                        "locations."
+                    ),
+                )
+
+            availability = connection.execute(
+                "SELECT COUNT(*) FROM PHI_Daily WHERE date = ?",
+                (planning_date,),
+            ).fetchone()[0]
+            if availability == 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "No PHI availability data exists for this date. "
+                        "Choose a supported planning date."
+                    ),
+                )
+
+        record = save_submitted_task(request, dict(location_row))
+        return {
+            "message": "Inspection task created successfully.",
+            "task": record,
+            "note": (
+                "Priority scores are provisional and use synthetic "
+                "research data."
+            ),
+        }
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+    except (sqlite3.Error, OSError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not create the inspection task: {exc}",
+        ) from exc
 
 
 @router.post("/schedule")
@@ -163,6 +403,13 @@ def create_schedule(request: ScheduleRequest):
 
     try:
         tasks = load_tasks()
+        submitted_tasks = [
+            task
+            for task in load_submitted_tasks()
+            if task.get("planning_date") == planning_date
+            and task.get("status") == "Pending"
+        ]
+        tasks.extend(submitted_tasks)
         phis = load_phis(planning_date)
 
         if not tasks:
@@ -188,7 +435,13 @@ def create_schedule(request: ScheduleRequest):
         API_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         plan_path = API_OUTPUT_DIR / f"phi_plan_{planning_date}.csv"
 
-        fieldnames = list(plan[0].keys())
+        fieldnames = list(
+            dict.fromkeys(
+                field
+                for task in plan
+                for field in task
+            )
+        )
 
         with plan_path.open(
             "w",
@@ -401,4 +654,4 @@ def reschedule_plan(request: RescheduleRequest):
             "rescheduling function. The rescheduled result is returned "
             "in the response and is not saved over the original schedule."
         ),
-    }
+    }
