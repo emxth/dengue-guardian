@@ -1,5 +1,3 @@
-// clients/phi_mobile_app/src/features/edge_ai_capture/screens/RiskDetailScreen.js
-
 import React, { useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,7 +6,7 @@ import { DengueGuardianColors } from "../../../shared/theme/colors";
 export default function RiskDetailScreen({ route, navigation }) {
     const { telemetry } = route.params || {};
 
-    // Dynamically add the back button to the existing blue Tab Header
+    // back button in Tab Header
     useEffect(() => {
         const parentNav = navigation.getParent();
         if (parentNav) {
@@ -29,9 +27,7 @@ export default function RiskDetailScreen({ route, navigation }) {
         };
     }, [navigation]);
 
-    // ---------------------------------------------------------------------------
     // DATA MAPPING
-    // ---------------------------------------------------------------------------
     const temp = telemetry?.temperature ?? 0.0;
     const humidity = telemetry?.humidity ?? 0.0;
     const rain = telemetry?.rainfall_mm ?? 0.0;
