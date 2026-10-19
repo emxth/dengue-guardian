@@ -129,3 +129,45 @@ export async function reschedule(planningDate, unavailablePhi, assumeAllPending 
         }),
     });
 }
+
+/**
+ * GET /api/v1/planning/locations
+ * Fetch valid locations for the new inspection task form.
+ */
+export async function fetchPlanningLocations() {
+    const response = await apiFetch("/api/v1/planning/locations");
+    return response.locations ?? [];
+}
+
+/**
+ * POST /api/v1/planning/tasks
+ * Submit a new inspection task.
+ *
+ * @param {Object} task - Validated inspection task details.
+ */
+export async function createInspectionTask(task) {
+    if (!task || typeof task !== "object") {
+        throw new Error("Inspection task details are required.");
+    }
+
+    if (
+        !["Dengue Case Inspection", "Citizen Complaint"].includes(
+            task.task_type
+        )
+    ) {
+        throw new Error("Select a valid inspection task type.");
+    }
+
+    if (!task.location_id) {
+        throw new Error("Please select a location.");
+    }
+
+    if (!task.planning_date || !/^\d{4}-\d{2}-\d{2}$/.test(task.planning_date)) {
+        throw new Error("Enter a valid planning date in YYYY-MM-DD format.");
+    }
+
+    return apiFetch("/api/v1/planning/tasks", {
+        method: "POST",
+        body: JSON.stringify(task),
+    });
+}

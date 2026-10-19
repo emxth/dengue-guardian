@@ -10,6 +10,7 @@ import {
     Info,
     Search,
     X,
+    PlusCircle,
 } from "lucide-react";
 
 import {
@@ -23,6 +24,7 @@ import ReschedulingDetailsTable from "../components/ReschedulingDetailsTable";
 import PlanningSummaryCards from "../components/PlanningSummaryCards";
 import PrioritySummaryCards from "../components/PrioritySummaryCards";
 import LocationDistributionTable from "../components/LocationDistributionTable";
+import NewInspectionTaskForm from "../components/NewInspectionTaskForm";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -43,6 +45,7 @@ const TABS = [
     { id: "priorities", label: "Inspection Priorities", icon: ClipboardList },
     { id: "schedule", label: "PHI Scheduling", icon: CalendarDays },
     { id: "reschedule", label: "Adaptive Rescheduling", icon: RotateCcw },
+    { id: "new-task", label: "New Inspection Task", icon: PlusCircle },
 ];
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -87,6 +90,23 @@ export default function PhiPlanningDashboard() {
             setPriorityLoading(false);
         }
     }, [priorityLoading, priorityLimit]);
+
+    const handleInspectionTaskCreated = useCallback(async () => {
+        setScheduleResult(null);
+        setOriginalSchedulePlan(null);
+        setRescheduleResult(null);
+        setPriorities(null);
+        setPriorityError(null);
+        setPriorityLoading(true);
+        try {
+            const data = await fetchPriorities(priorityLimit);
+            setPriorities(data);
+        } catch (err) {
+            setPriorityError(err.message);
+        } finally {
+            setPriorityLoading(false);
+        }
+    }, [priorityLimit]);
 
     const handleGenerateSchedule = useCallback(async () => {
         if (scheduleLoading) return;
@@ -195,7 +215,12 @@ export default function PhiPlanningDashboard() {
             {activeTab === "schedule" && (
                 <ScheduleTab
                     date={scheduleDate}
-                    onDateChange={setScheduleDate}
+                    onDateChange={(nextDate) => {
+                        setScheduleDate(nextDate);
+                        setScheduleResult(null);
+                        setOriginalSchedulePlan(null);
+                        setRescheduleResult(null);
+                    }}
                     result={scheduleResult}
                     loading={scheduleLoading}
                     error={scheduleError}
@@ -225,6 +250,12 @@ export default function PhiPlanningDashboard() {
                     onConfirm={handleRescheduleConfirmed}
                     onCancelConfirm={() => setShowConfirm(false)}
                     scheduleExists={!!scheduleResult || !!rescheduleResult}
+                />
+            )}
+
+            {activeTab === "new-task" && (
+                <NewInspectionTaskForm
+                    onTaskCreated={handleInspectionTaskCreated}
                 />
             )}
         </div>
@@ -509,7 +540,11 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                         ) : (
                             <RefreshCw size={15} />
                         )}
-                        {loading ? "Loading…" : "Load Priorities"}
+                                                {loading
+                                                        ? "Loading…"
+                                                        : priorities
+                                                            ? "Refresh Priorities"
+                                                            : "Load Priorities"}
                     </button>
                 </div>
 
