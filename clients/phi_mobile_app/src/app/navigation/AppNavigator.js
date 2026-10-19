@@ -1,17 +1,36 @@
+// clients/phi_mobile_app/src/app/navigation/AppNavigator.js
+
+import React from "react";
 import { View, Platform, Image } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack"; // Added for nested stack
 import { NavigationContainer } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { DengueGuardianColors } from "../../shared/theme/colors";
 
+// Import your screen components
 import PHIDashboardScreen from "../../features/edge_ai_capture/screens/PHIDashboardScreen";
-//import EdgeCaptureScreen from "../../features/edge_ai_capture/screens/EdgeCaptureScreen";
+import RiskDetailScreen from "../../features/edge_ai_capture/screens/RiskDetailScreen"; // Added new detail screen
 import SpatioMapScreen from "../../features/spatio_mapping/screens/SpatioMapScreen";
 import InspectionScreen from "../../features/phi_inspection/screens/InspectionScreen";
 import PreventionScreen from "../../features/prevention/screens/PreventionScreen";
 
 const Tab = createBottomTabNavigator();
+const EdgeStack = createNativeStackNavigator(); // Initialize the nested stack
+
+// ---------------------------------------------------------------------------
+// NESTED STACK NAVIGATOR for the "Edge AI" Tab
+// This allows RiskDetailScreen to slide over the Dashboard without breaking tabs
+// ---------------------------------------------------------------------------
+function EdgeAIStackNavigator() {
+  return (
+    <EdgeStack.Navigator screenOptions={{ headerShown: false }}>
+      <EdgeStack.Screen name="PHIDashboardScreen" component={PHIDashboardScreen} />
+      <EdgeStack.Screen name="RiskDetailScreen" component={RiskDetailScreen} />
+    </EdgeStack.Navigator>
+  );
+}
 
 export default function AppNavigator() {
   const insets = useSafeAreaInsets();
@@ -103,9 +122,10 @@ export default function AppNavigator() {
           },
         })}
       >
+        {/* Replace the direct component with the nested EdgeAIStackNavigator */}
         <Tab.Screen
           name="Edge AI"
-          component={PHIDashboardScreen}
+          component={EdgeAIStackNavigator}
           options={{
             headerTitle: "Edge AI Risk Node",
             tabBarLabel: "Edge AI",
