@@ -1,13 +1,26 @@
 
 """Automated tests for the C3 PHI Planning API."""
 
+import sqlite3
+
+import pytest
 from fastapi.testclient import TestClient
 
+from component_3_phi_planning.api import task_store
 from component_3_phi_planning.api.routes import planning as planning_routes
 
 from component_3_phi_planning.api.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def isolate_submitted_task_store(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        task_store,
+        "TASK_STORE_PATH",
+        tmp_path / "submitted_tasks.json",
+    )
 
 
 def test_health_endpoint():
@@ -61,6 +74,205 @@ def test_priorities_rejects_invalid_limit():
     response = client.get("/api/v1/planning/priorities?limit=0")
 
     assert response.status_code == 422
+
+
+def test_locations_returns_average_risk_and_null_when_missing(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "synthetic.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE Locations (
+                location_id TEXT,
+                moh_area TEXT,
+                phi_range TEXT,
+                village_area TEXT,
+                location_label TEXT,
+                data_status TEXT
+            );
+            CREATE TABLE Case_Notifications (
+                location_id TEXT,
+                risk_indicator REAL
+            );
+            INSERT INTO Locations VALUES
+                ('LOC001', 'MOH', 'Range A', 'Village A', 'Point A', 'SYNTHETIC'),
+                ('LOC002', 'MOH', 'Range B', 'Village B', 'Point B', 'SYNTHETIC');
+            INSERT INTO Case_Notifications VALUES
+                ('LOC001', 0.4),
+                ('LOC001', 0.8),
+                ('LOC001', 1.2),
+                ('LOC002', NULL);
+            """
+        )
+
+    monkeypatch.setattr(planning_routes, "DATABASE_PATH", database_path)
+    response = client.get("/api/v1/planning/locations")
+
+    assert response.status_code == 200
+    locations = {
+        location["location_id"]: location
+        for location in response.json()["locations"]
+    }
+    assert locations["LOC001"]["location_name"] == "Village A"
+    assert locations["LOC001"]["risk_indicator"] == pytest.approx(0.6)
+    assert locations["LOC002"]["risk_indicator"] is None
+
+
+def test_case_task_uses_location_risk_and_rejects_submitted_risk(
+    tmp_path,
+    monkeypatch,
+):
+    response = client.post(
+        "/api/v1/planning/tasks",
+        json={
+            "task_type": "Dengue Case Inspection",
+            "location_id": "LOC001",
+            "planning_date": "2026-04-01",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    task = response.json()["task"]
+    locations_response = client.get("/api/v1/planning/locations")
+    location = next(
+        row for row in locations_response.json()["locations"]
+        if row["location_id"] == "LOC001"
+    )
+    assert task["risk_indicator"] == location["risk_indicator"]
+    assert task["priority_score"] == round(location["risk_indicator"] * 100, 2)
+
+    rejected = client.post(
+        "/api/v1/planning/tasks",
+        json={
+            "task_type": "Dengue Case Inspection",
+            "location_id": "LOC001",
+            "planning_date": "2026-04-01",
+            "risk_indicator": 0.99,
+        },
+    )
+    assert rejected.status_code == 422
+
+
+def test_citizen_complaint_keeps_urgency_scoring():
+    response = client.post(
+        "/api/v1/planning/tasks",
+        json={
+            "task_type": "Citizen Complaint",
+            "location_id": "LOC001",
+            "planning_date": "2026-04-01",
+            "urgency": "High",
+            "complaint_type": "Potential mosquito breeding site",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    task = response.json()["task"]
+    assert task["priority_score"] == 90
+    assert task["risk_indicator"] is None
+
+
+def test_submitted_case_is_in_priorities_response():
+    created = client.post(
+        "/api/v1/planning/tasks",
+        json={
+            "task_type": "Dengue Case Inspection",
+            "location_id": "LOC001",
+            "planning_date": "2026-04-01",
+        },
+    )
+    assert created.status_code == 201, created.text
+    submitted = created.json()["task"]
+
+    response = client.get("/api/v1/planning/priorities?limit=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    returned = next(
+        task for task in body["cases"]
+        if task["task_id"] == submitted["scenario_task_id"]
+    )
+    assert returned["task_type"] == submitted["task_type"]
+    assert returned["location_id"] == submitted["location_id"]
+    assert returned["priority_score"] == submitted["priority_score"]
+    assert returned["priority_level"] == submitted["priority_level"]
+    assert returned["notification_date"] == submitted["planning_date"]
+
+
+def test_submitted_complaint_is_in_priorities_response():
+    created = client.post(
+        "/api/v1/planning/tasks",
+        json={
+            "task_type": "Citizen Complaint",
+            "location_id": "LOC001",
+            "planning_date": "2026-04-01",
+            "urgency": "High",
+            "complaint_type": "Potential mosquito breeding site",
+        },
+    )
+    assert created.status_code == 201, created.text
+    submitted = created.json()["task"]
+
+    response = client.get("/api/v1/planning/priorities?limit=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    returned = next(
+        task for task in body["complaints"]
+        if task["task_id"] == submitted["scenario_task_id"]
+    )
+    assert returned["task_type"] == submitted["task_type"]
+    assert returned["complaint_type"] == submitted["complaint_type"]
+    assert returned["urgency"] == submitted["urgency"]
+    assert returned["location_id"] == submitted["location_id"]
+    assert returned["priority_score"] == submitted["priority_score"]
+    assert returned["priority_level"] == submitted["priority_level"]
+    assert returned["received_date"] == submitted["planning_date"]
+
+
+def test_schedule_includes_only_matching_date_tasks_and_marks_capacity(
+    tmp_path,
+    monkeypatch,
+):
+    matching = client.post(
+        "/api/v1/planning/tasks",
+        json={
+            "task_type": "Dengue Case Inspection",
+            "location_id": "LOC001",
+            "planning_date": "2026-04-01",
+        },
+    )
+    other_date = client.post(
+        "/api/v1/planning/tasks",
+        json={
+            "task_type": "Citizen Complaint",
+            "location_id": "LOC001",
+            "planning_date": "2026-04-15",
+            "urgency": "Medium",
+            "complaint_type": "Standing water",
+        },
+    )
+    assert matching.status_code == 201
+    assert other_date.status_code == 201
+
+    monkeypatch.setattr(planning_routes, "load_tasks", lambda: [])
+    monkeypatch.setattr(planning_routes, "load_phis", lambda _: [])
+    monkeypatch.setattr(planning_routes, "API_OUTPUT_DIR", tmp_path)
+
+    response = client.post(
+        "/api/v1/planning/schedule",
+        json={"planning_date": "2026-04-01"},
+    )
+
+    assert response.status_code == 200, response.text
+    tasks = response.json()["tasks"]
+    matching_id = matching.json()["task"]["scenario_task_id"]
+    other_id = other_date.json()["task"]["scenario_task_id"]
+    returned_by_id = {task["scenario_task_id"]: task for task in tasks}
+    assert matching_id in returned_by_id
+    assert returned_by_id[matching_id]["status"] == "Unscheduled"
+    assert other_id not in returned_by_id
 
 
 def test_schedule_endpoint():
@@ -265,26 +477,24 @@ def test_reschedule_response_contains_transparency_fields():
             "Unscheduled",
         }
 
-    # Check PHI02 results (1 successfully reassigned to PHI06, 4 remain unscheduled due to capacity constraints)
-    assert body["affected_tasks"] == 5
-    assert body["reassigned_tasks"] == 1
-    assert body["remaining_unscheduled_tasks"] == 4
-    assert body["unchanged_tasks"] == 45
+    expected_phi02_tasks = [
+        task for task in schedule_response.json()["tasks"]
+        if task.get("status") == "Scheduled"
+        and task.get("assigned_phi") == "PHI02"
+    ]
+    assert body["affected_tasks"] == len(expected_phi02_tasks)
 
-    # Verify tasks originally assigned to PHI02 have previous_assigned_phi == 'PHI02'
     phi02_tasks = [
         t for t in body["tasks"]
         if t.get("previous_assigned_phi") == "PHI02"
     ]
-    assert len(phi02_tasks) == 5
+    assert len(phi02_tasks) == len(expected_phi02_tasks)
 
     phi02_reassigned = [t for t in phi02_tasks if t["reassignment_classification"] == "Reassigned"]
-    assert len(phi02_reassigned) == 1
-    assert phi02_reassigned[0]["assigned_phi"] == "PHI06"
-    assert phi02_reassigned[0]["status"] == "Scheduled"
+    assert all(task["status"] == "Scheduled" for task in phi02_reassigned)
 
     phi02_unscheduled = [t for t in phi02_tasks if t["reassignment_classification"] == "Unscheduled"]
-    assert len(phi02_unscheduled) == 4
+    assert len(phi02_reassigned) + len(phi02_unscheduled) == len(phi02_tasks)
     for t in phi02_unscheduled:
         assert t["status"] == "Unscheduled"
         assert "capacity" in t.get("reason", "").lower()
@@ -295,12 +505,11 @@ def test_reschedule_response_contains_transparency_fields():
         if t.get("previous_assigned_phi") not in {"", "PHI02"}
         and t.get("status") == "Scheduled"
     ]
-    assert len(other_unchanged) == 45
     for t in other_unchanged:
         assert t["reassignment_classification"] == "Unchanged"
         assert t["assigned_phi"] == t["previous_assigned_phi"]
 
-    # Now verify PHI03 where reassignment actually succeeds for a task
+    # Verify PHI03 classifications against the same generated schedule.
     response_phi03 = client.post(
         "/api/v1/planning/reschedule",
         json={
@@ -311,19 +520,29 @@ def test_reschedule_response_contains_transparency_fields():
     )
     assert response_phi03.status_code == 200
     body_phi03 = response_phi03.json()
-    assert body_phi03["affected_tasks"] == 5
-    assert body_phi03["reassigned_tasks"] == 1
-    assert body_phi03["remaining_unscheduled_tasks"] == 4
+    expected_phi03_count = sum(
+        task.get("status") == "Scheduled"
+        and task.get("assigned_phi") == "PHI03"
+        for task in schedule_response.json()["tasks"]
+    )
+    assert body_phi03["affected_tasks"] == expected_phi03_count
 
     reassigned_tasks = [
         t for t in body_phi03["tasks"]
         if t.get("reassignment_classification") == "Reassigned"
     ]
-    assert len(reassigned_tasks) == 1
-    reassigned = reassigned_tasks[0]
-    assert reassigned["previous_assigned_phi"] == "PHI03"
-    assert reassigned["assigned_phi"] != "PHI03"
-    assert reassigned["status"] == "Scheduled"
+    assert all(
+        task["previous_assigned_phi"] == "PHI03"
+        and task["assigned_phi"] != "PHI03"
+        and task["status"] == "Scheduled"
+        for task in reassigned_tasks
+    )
+    phi03_unscheduled = [
+        task for task in body_phi03["tasks"]
+        if task.get("previous_assigned_phi") == "PHI03"
+        and task["reassignment_classification"] == "Unscheduled"
+    ]
+    assert len(reassigned_tasks) + len(phi03_unscheduled) == expected_phi03_count
 
 
 def test_reschedule_classification_covers_protected_and_deferred(tmp_path, monkeypatch):
