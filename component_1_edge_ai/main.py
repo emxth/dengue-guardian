@@ -38,7 +38,8 @@ def run_edge_orchestrator(max_cycles: int = 0, interval_sec: float = 10.0):
     export_shared_contract()
 
     # 2. Load and warm up all three Edge AI modules immediately to prevent latency spikes
-    yolo_engine = YOLOVisionEngine(conf_threshold=0.45)
+    # yolo_engine = YOLOVisionEngine(conf_threshold=0.05)
+    yolo_engine = YOLOVisionEngine(conf_threshold=0.05)
     weather_engine = WeatherAIEngine()
     fusion_engine = DecisionFusionEngine()
 

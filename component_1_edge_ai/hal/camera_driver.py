@@ -33,6 +33,20 @@ def capture_frame() -> np.ndarray:
             timeout=15,
         )
 
+        # result = subprocess.run(
+        #     [
+        #         "rpicam-jpeg",
+        #         "-o", temp_img_path,
+        #         "-t", "1000",
+        #         "--width", "1280",
+        #         "--height", "960",
+        #         "--quality", "85",
+        #     ],
+        #     capture_output=True,
+        #     text=True,
+        #     timeout=15,
+        # )
+
         if result.returncode == 0 and os.path.exists(temp_img_path):
             frame = cv2.imread(temp_img_path)
             os.remove(temp_img_path) # Clean up

@@ -19,7 +19,7 @@ class YOLOVisionEngine:
     Handles loading the YOLO model and counting mosquito-breeding containers 
     from camera frames on the edge device.
     """
-    def __init__(self, conf_threshold: float = 0.45):
+    def __init__(self, conf_threshold: float = 0.05):
         self.conf_threshold = conf_threshold
         self.onnx_path = MODELS_DIR / "best.onnx"
         self.pt_path = MODELS_DIR / "best.pt"
@@ -42,16 +42,18 @@ class YOLOVisionEngine:
             print("[YOLO Warning] No model file found in /models. Running in dummy zero-count mode.")
             self.model = None
 
-        # Warm-up the ONNX Runtime session using a blank 640x640 image
+        # Warm-up the ONNX Runtime session using a blank 960x960 image
         # This prevents the first real camera frame from taking 4+ seconds
         if self.model is not None:
-            dummy_warmup = np.zeros((640, 640, 3), dtype=np.uint8)
-            self.model.predict(source=dummy_warmup, imgsz=640, device="cpu", verbose=False)
+            # dummy_warmup = np.zeros((640, 640, 3), dtype=np.uint8)
+            # self.model.predict(source=dummy_warmup, imgsz=640, device="cpu", verbose=False)
+            dummy_warmup = np.zeros((960, 960, 3), dtype=np.uint8)
+            self.model.predict(source=dummy_warmup, imgsz=960, device="cpu", verbose=False)
             print("[YOLO] ONNX Runtime session warmed up and ready.")
 
     def detect_and_count(self, frame: np.ndarray) -> tuple[DetectedObjects, float]:
         """
-        Runs object detection on a 640x640 image frame.
+        Runs object detection on a 960x960 image frame.
         
         Args:
             frame: A 3-channel numpy image array from the camera driver.
@@ -77,7 +79,7 @@ class YOLOVisionEngine:
         results = self.model.predict(
             source=frame,
             conf=self.conf_threshold,
-            imgsz=640,
+            imgsz=960,
             device="cpu",
             verbose=False
         )
