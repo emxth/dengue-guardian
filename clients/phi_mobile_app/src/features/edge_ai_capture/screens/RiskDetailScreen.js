@@ -177,12 +177,12 @@ export default function RiskDetailScreen({ route, navigation }) {
                         </View>
                         <View className="w-[48%] bg-slate-50 border border-slate-200 rounded-lg p-3 items-center mb-3">
                             <Ionicons name="cube-outline" size={20} color="#64748B" />
-                            <Text className="text-[10px] font-black text-textMuted mt-1 uppercase">Containers</Text>
+                            <Text className="text-[10px] font-black text-textMuted mt-1 uppercase">Vase</Text>
                             <Text className="text-lg font-black mt-1">{countVase}</Text>
                         </View>
                         <View className="w-[48%] bg-slate-50 border border-slate-200 rounded-lg p-3 items-center">
                             <Ionicons name="basketball-outline" size={20} color="#64748B" />
-                            <Text className="text-[10px] font-black text-textMuted mt-1 uppercase">Coconut Shell</Text>
+                            <Text className="text-[10px] font-black text-textMuted mt-1 uppercase">Exocarps</Text>
                             <Text className="text-lg font-black mt-1">{countCoconut}</Text>
                         </View>
                     </View>

@@ -49,18 +49,15 @@ export default function PHIDashboardScreen({ navigation }) {
       </View>
     );
   }
-
-  // ---------------------------------------------------------------------------
+ 
   // DATA MAPPING
   // Directly mapped to the flat TelemetryRecord schema from schemas.py
-  // Fallbacks are included to prevent app crashes if fields are temporarily null
-  // ---------------------------------------------------------------------------
   const temperature = telemetry?.temperature ?? 0.0;
   const humidity = telemetry?.humidity ?? 0.0;
   const rainfall = telemetry?.rainfall_mm ?? 0.0;
   
   // Convert risk level to uppercase (e.g., "High" -> "HIGH")
-  const riskTier = (telemetry?.risk_level ?? "Pending").toUpperCase();
+  const riskTier = (telemetry?.risk_level ?? "PENDING").toUpperCase();
   
   // Final combined risk score (0.0 to 1.0)
   const riskScore = telemetry?.environmental_breeding_risk ?? 0.0;
@@ -73,9 +70,23 @@ export default function PHIDashboardScreen({ navigation }) {
   const totalObjects = Object.values(objectsDict).reduce(
     (sum, count) => sum + (Number(count) || 0), 0
   );
+  
+  // Dynamic 3-tier color logic
+  const getRiskColor = (tier) => {
+    if (tier === "HIGH") return DengueGuardianColors.riskHigh || "#EF4444"; // Red
+    if (tier === "MEDIUM") return "#F59E0B"; // Amber
+    return DengueGuardianColors.riskCleared || "#10B981"; // Green
+  };
 
-  // Helper boolean to trigger red/alert UI themes
+  // Strict backend-aligned Weather AI boundary logic
+  const getWeatherTierLabel = (score) => {
+    if (score >= 0.65) return "High";
+    if (score >= 0.35) return "Medium";
+    return "Low";
+  };
+
   const isHighRisk = riskTier === "HIGH";
+  const currentRiskColor = getRiskColor(riskTier);
 
   return (
     <ScrollView
@@ -120,17 +131,15 @@ export default function PHIDashboardScreen({ navigation }) {
           </Text>
           {isHighRisk && (
             <View className="flex-row items-center bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-              <Ionicons name="warning-outline" size={12} color={DengueGuardianColors.riskHigh} />
-              <Text className="text-[10px] font-bold text-riskHigh ml-1">Alert</Text>
+              <Ionicons name="warning-outline" size={12} color={currentRiskColor} />
+              <Text className="text-[10px] font-bold ml-1" style={{ color: currentRiskColor }}>Alert</Text>
             </View>
           )}
         </View>
 
         <Text
           className="text-4xl font-black tracking-tight my-1"
-          style={{
-            color: isHighRisk ? DengueGuardianColors.riskHigh : DengueGuardianColors.riskCleared,
-          }}
+          style={{ color: currentRiskColor }}
         >
           {riskTier}
         </Text>
@@ -141,7 +150,7 @@ export default function PHIDashboardScreen({ navigation }) {
             className="h-full rounded-full"
             style={{
               width: `${Math.min(100, Math.max(5, riskScore * 100))}%`,
-              backgroundColor: isHighRisk ? DengueGuardianColors.riskHigh : DengueGuardianColors.riskCleared,
+              backgroundColor: currentRiskColor,
             }}
           />
         </View>
@@ -197,7 +206,7 @@ export default function PHIDashboardScreen({ navigation }) {
             <Text className="text-xs text-textMuted ml-2">Weather Risk</Text>
           </View>
           <Text className="text-xs font-bold text-darkBase">
-            {(weatherSuitability * 100).toFixed(1)}% ({weatherSuitability > 0.6 ? "High" : "Moderate"})
+             {(weatherSuitability * 100).toFixed(1)}% ({getWeatherTierLabel(weatherSuitability)})
           </Text>
         </View>
 
@@ -218,9 +227,7 @@ export default function PHIDashboardScreen({ navigation }) {
           </View>
           <Text
             className="text-xs font-black"
-            style={{
-              color: isHighRisk ? DengueGuardianColors.riskHigh : DengueGuardianColors.riskCleared,
-            }}
+            style={{ color: currentRiskColor }}
           >
             {riskTier}
           </Text>
