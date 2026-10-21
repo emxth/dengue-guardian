@@ -26,7 +26,18 @@ from engine.stgnn_model import AdaptiveSTGNN
 # Load Data and Edge Index
 DATA_DIR = os.path.join(BASE_DIR, "data")
 adj_df = pd.read_csv(os.path.join(DATA_DIR, "adjacency_matrix.csv"), index_col=0)
+
 wards = list(adj_df.columns)
+
+# Standardized GPS Coordinates for the Kaduwela MOH region wards
+WARD_COORDINATES = {
+    "Malabe": [79.9562, 6.9044],
+    "Battaramulla": [79.9167, 6.8986],
+    "Koswatta": [79.9234, 6.9056],
+    "Kaduwela_Town": [79.9833, 6.9333],
+    "Athurugiriya": [79.9897, 6.8742],
+}
+
 source_nodes, target_nodes = np.where(adj_df.values == 1)
 edge_index = torch.tensor(np.array([source_nodes, target_nodes]), dtype=torch.long)
 
@@ -120,4 +131,74 @@ def ingest_vector_data(payload: dict[str, Any]):
         "status": "queued",
         "task_id": task.id,
         "message": "Data payload pushed to Redis broker for asynchronous processing.",
+    }
+
+
+@app.get("/api/v1/hotspots/geojson")
+def get_hotspot_geojson():
+    """
+    Generates a GeoJSON FeatureCollection of spatial risk predictions.
+    Utilizes MC Dropout to provide 95% Confidence Intervals for front-end heatmaps.
+    """
+    X_live = torch.rand(8, len(wards), 4)
+
+    # Run MC Dropout Inference (50 iterations)
+    mean_preds, std_preds = model.predict_with_uncertainty(
+        X_live, edge_index, n_iter=50
+    )
+
+    features = []
+
+    for ward_id, ward_name in enumerate(wards):
+        # Extract 14-Day Horizon (index 1)
+        mean_cases = mean_preds[ward_id, 1].item()
+        std_dev = std_preds[ward_id, 1].item()
+
+        # Calculate 95% Confidence Interval (Mean ± 1.96 * StdDev)
+        ci_lower = max(0.0, mean_cases - (1.96 * std_dev))
+        ci_upper = mean_cases + (1.96 * std_dev)
+
+        risk_level = "High Risk" if mean_cases > 20 else "Moderate Risk"
+        color_hex = (
+            "#ef4444" if mean_cases > 20 else "#f59e0b"
+        )  # Red for High, Amber for Mod
+
+        # Build standard GeoJSON Feature
+        feature = {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": WARD_COORDINATES.get(ward_name, [0.0, 0.0]),
+            },
+            "properties": {
+                "ward_id": ward_id,
+                "ward_name": ward_name,
+                "predicted_cases": round(mean_cases, 1),
+                "confidence_interval": [round(ci_lower, 1), round(ci_upper, 1)],
+                "uncertainty_std": round(std_dev, 2),
+                "risk_level": risk_level,
+                "marker-color": color_hex,
+            },
+        }
+        features.append(feature)
+
+        # Asynchronously log to MongoDB (optional)
+        forecast_collection.insert_one(
+            {
+                "timestamp": datetime.utcnow(),
+                "ward_name": ward_name,
+                "predicted_cases_14d": round(mean_cases, 1),
+                "ci_lower": round(ci_lower, 1),
+                "ci_upper": round(ci_upper, 1),
+            }
+        )
+
+    return {
+        "type": "FeatureCollection",
+        "metadata": {
+            "model": "STGNN-MCDropout",
+            "horizon": "14-Day",
+            "generated_at": datetime.utcnow(),
+        },
+        "features": features,
     }
