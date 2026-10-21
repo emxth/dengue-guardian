@@ -8,118 +8,131 @@ from pathlib import Path
 
 from ortools.sat.python import cp_model
 
+from component_3_phi_planning.config import DEFAULT_PLANNING_DATE
+from component_3_phi_planning.prioritization.score_tasks import (
+    score_cases,
+    score_complaints,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 PRIORITY_DIR = ROOT / "prioritization" / "output"
 OUTPUT_DIR = ROOT / "optimization" / "output"
 
-DB_PATH = DATA_DIR / "Kaduwela_C3_Research_Database_V2_SYNTHETIC.sqlite"
+DB_PATH = DATA_DIR / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
 
 # Explicit synthetic modeling assumptions for the first prototype.
-DEFAULT_DATE = "2026-04-01"
+DEFAULT_DATE = DEFAULT_PLANNING_DATE
 TASK_DURATION_MIN = 45
 MAX_CASE_TASKS = 30
 MAX_COMPLAINT_TASKS = 20
 
 
-def read_csv(path):
-    with path.open("r", newline="", encoding="utf-8-sig") as file:
-        return list(csv.DictReader(file))
+def load_tasks(plan_date=DEFAULT_DATE):
+    """Build a bounded research batch from fresh database-derived priority scores.
 
+    Legacy risk_indicator, initial_priority and historical PHI assignments are
+    deliberately not used. This batch is a synthetic evaluation scenario, not
+    a claim that all historical records are currently pending.
+    """
+    if not DB_PATH.is_file():
+        raise FileNotFoundError(f"Planning database not found: {DB_PATH}")
 
-def load_tasks():
-    """Build a separate hypothetical batch; do not reuse history as pending work."""
-    case_scores = read_csv(PRIORITY_DIR / "case_priority_scores.csv")
-    complaint_scores = read_csv(PRIORITY_DIR / "complaint_priority_scores.csv")
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-
-    cases = {
-        row["task_id"]: dict(row)
-        for row in conn.execute("SELECT * FROM Case_Notifications")
-    }
-    complaints = {
-        row["complaint_id"]: dict(row)
-        for row in conn.execute("SELECT * FROM Citizen_Complaints")
-    }
-    conn.close()
-
-    case_scores.sort(
-        key=lambda r: float(r["priority_score"]), reverse=True
-    )
-    complaint_scores.sort(
-        key=lambda r: float(r["priority_score"]), reverse=True
-    )
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        scored_cases = score_cases(conn, plan_date)
+        scored_complaints = score_complaints(conn, plan_date)
+        cases = {r["task_id"]: dict(r) for r in conn.execute("SELECT * FROM Case_Notifications")}
+        complaints = {r["complaint_id"]: dict(r) for r in conn.execute("SELECT * FROM Citizen_Complaints")}
 
     tasks = []
-
-    for score_row in case_scores[:MAX_CASE_TASKS]:
-        source_id = score_row["task_id"]
-        source = cases[source_id]
-
+    for scored in scored_cases:
+        if scored.get("priority_score") is None:
+            continue
+        source = cases[scored["task_id"]]
         tasks.append({
-            "scenario_task_id": f"SIM-CASE-{source_id}",
-            "source_id": source_id,
+            "scenario_task_id": f"SIM-CASE-{source['task_id']}",
+            "source_id": source["task_id"],
             "task_type": "Dengue Case Inspection",
-            "priority_score": float(score_row["priority_score"]),
-            "priority_level": score_row["priority_level"],
+            "priority_score": float(scored["priority_score"]),
+            "priority_level": scored["priority_level"],
+            "priority_reason": scored["priority_reason"],
+            "priority_factors": scored["priority_factors"],
+            "data_quality_status": scored["data_quality_status"],
+            "component2_risk_score": scored["component2_risk_score"],
+            "component2_risk_level": scored["component2_risk_level"],
             "location_id": source["location_id"],
+            "moh_area": source["moh_area"],
             "phi_range": source["phi_range"],
             "village_area": source["village_area"],
+            "location_label": source["location_label"],
+            "task_date": source["notification_date"],
         })
+        if sum(t["task_type"] == "Dengue Case Inspection" for t in tasks) >= MAX_CASE_TASKS:
+            break
 
     complaint_count = 0
-    for score_row in complaint_scores:
-        source_id = score_row["task_id"]
-        source = complaints[source_id]
-
-        # Closed complaints must not be added to this simulated task batch.
-        if source["status"].strip().lower() == "closed":
+    for scored in scored_complaints:
+        if scored.get("priority_score") is None:
             continue
-
+        source = complaints[scored["task_id"]]
+        if str(source.get("status") or "").strip().lower() == "closed":
+            continue
         tasks.append({
-            "scenario_task_id": f"SIM-COMPLAINT-{source_id}",
-            "source_id": source_id,
+            "scenario_task_id": f"SIM-COMPLAINT-{source['complaint_id']}",
+            "source_id": source["complaint_id"],
             "task_type": "Citizen Complaint",
-            "priority_score": float(score_row["priority_score"]),
-            "priority_level": score_row["priority_level"],
+            "priority_score": float(scored["priority_score"]),
+            "priority_level": scored["priority_level"],
+            "priority_reason": scored["priority_reason"],
+            "priority_factors": scored["priority_factors"],
+            "data_quality_status": scored["data_quality_status"],
+            "area_activity_score": scored["activity_score"],
+            "component2_risk_score": scored.get("component2_risk_score"),
+            "component2_risk_level": scored.get("component2_risk_level"),
+            "urgency": source.get("urgency"),
+            "complaint_type": source.get("complaint_type"),
             "location_id": source["location_id"],
+            "moh_area": source["moh_area"],
             "phi_range": source["phi_range"],
             "village_area": source["village_area"],
+            "location_label": source["location_label"],
+            "task_date": source["received_date"],
         })
-
         complaint_count += 1
         if complaint_count >= MAX_COMPLAINT_TASKS:
             break
 
-    # Numeric scores are provisional across task types; this ordering is a
-    # prototype assumption, not a validated operational priority policy.
-    tasks.sort(key=lambda t: t["priority_score"], reverse=True)
+    # Across task types, numeric scores are provisional research assumptions.
+    tasks.sort(key=lambda t: (-t["priority_score"], t["task_type"], t["scenario_task_id"]))
     return tasks
 
 
 def load_phis(plan_date):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    """Load date-specific PHI availability/capacity plus master-area information."""
+    if not DB_PATH.is_file():
+        raise FileNotFoundError(f"Planning database not found: {DB_PATH}")
 
-    rows = conn.execute(
-        """
-        SELECT phi_id, phi_range, availability, working_start, working_end,
-               daily_capacity, existing_workload
-        FROM PHI_Daily
-        WHERE date = ?
-        ORDER BY phi_id
-        """,
-        (plan_date,),
-    ).fetchall()
-    conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT d.phi_id, d.phi_range, d.availability, d.working_start,
+                   d.working_end, d.daily_capacity, d.existing_workload,
+                   m.moh_area, m.primary_village_area
+            FROM PHI_Daily AS d
+            JOIN PHI_Master AS m ON m.phi_id = d.phi_id
+            WHERE d.date = ?
+            ORDER BY d.phi_id
+            """,
+            (plan_date,),
+        ).fetchall()
 
     if not rows:
         raise ValueError(
             f"No PHI availability data for {plan_date}. "
-            "Choose a date from 2026-04-01 to 2026-09-30."
+            "Choose a supported date from 2026-04-01 to 2026-09-30."
         )
 
     phis = []
@@ -128,10 +141,8 @@ def load_phis(plan_date):
         phi["remaining_capacity"] = max(
             0, int(phi["daily_capacity"]) - int(phi["existing_workload"])
         )
-
-        if phi["availability"].strip().lower() == "available":
+        if str(phi["availability"]).strip().lower() == "available":
             phis.append(phi)
-
     return phis
 
 
@@ -148,6 +159,14 @@ def solve_schedule(tasks, phis, plan_date):
     for task_index, task in enumerate(tasks):
         for phi in phis:
             phi_id = phi["phi_id"]
+
+            # A PHI must belong to the same MOH area when both area fields exist.
+            # Range mismatch is allowed within that MOH area so an overloaded
+            # local PHI can be backed up by another available PHI.
+            task_area = task.get("moh_area")
+            phi_area = phi.get("moh_area")
+            if task_area and phi_area and str(task_area).strip().casefold() != str(phi_area).strip().casefold():
+                continue
 
             if phi["remaining_capacity"] <= 0:
                 continue
@@ -239,7 +258,19 @@ def solve_schedule(tasks, phis, plan_date):
                 f"{tasks[task_index]['priority_level']}"
             )
 
-        priority_terms.append(weight * item["assigned"])
+        phi = next(p for p in phis if p["phi_id"] == phi_id)
+        same_range_bonus = 2 if (
+            task.get("phi_range") and phi.get("phi_range")
+            and str(task["phi_range"]).strip().casefold()
+                == str(phi["phi_range"]).strip().casefold()
+        ) else 0
+        workload_penalty = min(int(phi.get("existing_workload", 0)), 10)
+        tie_break = same_range_bonus - workload_penalty
+        score_tiebreak = round(float(task.get("priority_score") or 0) * 10)
+        # Tier weights dominate the maximum possible sum of score/range/workload
+        # tie-breaks; the score then distinguishes tasks within the same tier.
+        objective_value = weight * 100_000 + score_tiebreak + tie_break
+        priority_terms.append(objective_value * item["assigned"])
 
     model.Maximize(sum(priority_terms))
     
