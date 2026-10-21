@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = BASE_DIR / "Kaduwela_C3_Research_Database_V2_SYNTHETIC.sqlite"
+DATABASE_PATH = BASE_DIR / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
 
 
 def get_connection():
