@@ -1,28 +1,52 @@
-import numpy as np
 import cv2
+import numpy as np
+import subprocess
+import os
+from pathlib import Path
 from config import MOCK_HARDWARE, DATA_DIR
 
 def capture_frame() -> np.ndarray:
-    """
-    Captures an image frame for YOLO inference.
-    In Mock Mode, loads 'detect.png' from /data if available; otherwise returns a grey frame.
-    """
     if MOCK_HARDWARE:
-        # Check for our test image inside component_1_edge_ai/data/
-        for filename in ["detect.png", "sample_test.jpg", "detect.jpg"]:
-            img_path = DATA_DIR / filename
-            if img_path.exists():
-                img = cv2.imread(str(img_path))
-                if img is not None:
-                    print(f"[Camera Mock] Loaded test image: {filename}")
-                    # Resize to 640x640 to match our exported ONNX input shape
-                    return cv2.resize(img, (640, 640))
-        
-        # Fallback if no test image is found in /data
-        print("[Camera Mock] No test image found in /data. Using blank grey frame.")
-        dummy_frame = np.full((640, 640, 3), 128, dtype=np.uint8)
-        return dummy_frame
+        return np.zeros((640, 640, 3), dtype=np.uint8)
 
-    # Physical Pi Camera V2.1 (Sony IMX219) logic using Picamera2 will go here
-    # once the hardware arrives in Phase 2.
-    raise NotImplementedError("Physical Pi Camera capture not configured yet.")
+    temp_img_path = str(DATA_DIR / "temp_capture.jpg")
+
+    try:
+        # Using the native rpicam-jpeg command for Pi OS Bookworm
+        # result = subprocess.run(
+        #     ["rpicam-jpeg", "-o", temp_img_path, "-t", "500", "--width", "640", "--height", "640"],
+        #     capture_output=True,
+        #     text=True
+        # )
+
+        result = subprocess.run(
+            [
+                "rpicam-jpeg",
+                "-o", temp_img_path,
+                "-t", "1000",
+                "--width", "3280",
+                "--height", "2464",
+                "--quality", "90",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+
+        if result.returncode == 0 and os.path.exists(temp_img_path):
+            frame = cv2.imread(temp_img_path)
+            os.remove(temp_img_path) # Clean up
+            
+            if frame is not None:
+                return frame
+                
+        raise RuntimeError(f"rpicam-jpeg failed: {result.stderr}")
+
+    except Exception as e:
+        print(f"Camera Hardware Error: {e}")
+        return np.zeros((640, 640, 3), dtype=np.uint8)
+
+def save_frame(frame: np.ndarray, filename: str) -> str:
+    filepath = DATA_DIR / filename
+    cv2.imwrite(str(filepath), frame)
+    return str(filepath)
