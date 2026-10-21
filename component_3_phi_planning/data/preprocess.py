@@ -7,7 +7,7 @@ import pandas as pd
 
 DEFAULT_DATABASE_PATH = (
     Path(__file__).resolve().parent
-    / "Kaduwela_C3_Research_Database_V2_SYNTHETIC.sqlite"
+    / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
 )
 
 
