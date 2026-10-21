@@ -13,9 +13,11 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from component_3_phi_planning.prioritization.score_tasks import (
+    calculate_task_priority,
     get_priority_level,
-    score_case_risk,
-    score_complaint_urgency,
+)
+from component_3_phi_planning.prioritization.activity_analytics import (
+    calculate_location_activity,
 )
 
 
@@ -83,31 +85,33 @@ def load_submitted_tasks():
 def save_submitted_task(
     task: NewInspectionTask,
     location: dict,
+    activity_data: dict,
 ):
     """Calculate provisional priority and persist one new task."""
     if task.task_type == "Dengue Case Inspection":
-        risk_indicator = location.get("risk_indicator")
-        if risk_indicator is None:
+        component2_risk_score = location.get("component2_risk_score")
+        if task.complaint_type is not None:
             raise ValueError(
-                "No valid synthetic risk data exists for this location."
+                "Complaint type cannot be used for a case inspection."
             )
-        if task.urgency is not None or task.complaint_type is not None:
-            raise ValueError(
-                "Complaint fields cannot be used for a case inspection."
-            )
-
-        score, reason = score_case_risk(risk_indicator)
-
     else:
-        if task.urgency is None:
-            raise ValueError("Urgency is required for a citizen complaint.")
         if not task.complaint_type:
             raise ValueError("Complaint type is required.")
 
-        score, reason = score_complaint_urgency(task.urgency)
-
-    if score is None:
-        raise ValueError(reason)
+    submitted_at = datetime.now().astimezone()
+    score, reason, factors = calculate_task_priority(
+        location.get("component2_risk_score"),
+        task.urgency,
+        task.planning_date,
+        task.planning_date,
+        activity_data,
+        "case" if task.task_type == "Dengue Case Inspection" else "complaint",
+    )
+    quality_status = (
+        "review" if score is None else
+        "provisional_assumption"
+        if factors["task_urgency"].get("assumption") else "complete"
+    )
 
     task_id = f"USR-{uuid4().hex[:12].upper()}"
 
@@ -115,15 +119,16 @@ def save_submitted_task(
         "scenario_task_id": task_id,
         "source_id": task_id,
         "task_type": task.task_type,
-        "priority_score": float(score),
+        "priority_score": float(score) if score is not None else None,
         "priority_level": get_priority_level(score),
         "priority_reason": reason,
+        "priority_factors": factors,
+        **activity_data,
+        "data_quality_status": quality_status,
         "location_id": task.location_id,
-        "risk_indicator": (
-            risk_indicator
-            if task.task_type == "Dengue Case Inspection"
-            else None
-        ),
+        "component2_risk_score": location.get("component2_risk_score"),
+        "component2_risk_level": location.get("component2_risk_level"),
+        "component2_score_source": location.get("component2_score_source"),
         "urgency": task.urgency,
         "complaint_type": task.complaint_type,
         "location_name": location.get("location_name", "Unknown Area"),
@@ -131,9 +136,7 @@ def save_submitted_task(
         "village_area": location.get("village_area", "Unknown Area"),
         "location_label": location.get("location_label", "Synthetic Point"),
         "planning_date": task.planning_date.isoformat(),
-        "submitted_at": datetime.now().astimezone().isoformat(
-            timespec="seconds"
-        ),
+        "submitted_at": submitted_at.isoformat(timespec="seconds"),
         "record_source": "user_submitted_synthetic_demo",
         "status": "Pending",
     }

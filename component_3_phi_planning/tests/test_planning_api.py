@@ -42,12 +42,12 @@ def test_priorities_endpoint():
     assert body["scoring_policy"] == "provisional"
     assert body["total_cases"] == 6050
     assert body["total_complaints"] == 811
-    assert len(body["cases"]) == 5
-    assert len(body["complaints"]) == 5
+    assert len(body["tasks"]) == 5
+    assert len(body["cases"]) + len(body["complaints"]) == 5
 
 
 def test_priorities_includes_location_information():
-    response = client.get("/api/v1/planning/priorities?limit=5")
+    response = client.get("/api/v1/planning/priorities?limit=50")
 
     assert response.status_code == 200
     body = response.json()
@@ -76,7 +76,405 @@ def test_priorities_rejects_invalid_limit():
     assert response.status_code == 422
 
 
-def test_locations_returns_average_risk_and_null_when_missing(
+def test_priority_pages_have_no_gaps_and_aggregates_cover_full_filtered_set(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "priority-pages.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE Locations (
+                location_id TEXT, village_area TEXT, location_label TEXT,
+                phi_range TEXT
+            );
+            CREATE TABLE Component2_Location_Risk (
+                location_id TEXT, risk_score REAL, risk_level TEXT, score_source TEXT
+            );
+            CREATE TABLE Case_Notifications (notification_date TEXT);
+            CREATE TABLE Citizen_Complaints (received_date TEXT);
+            INSERT INTO Case_Notifications VALUES ('2026-07-02');
+            INSERT INTO Citizen_Complaints VALUES ('2026-07-02');
+            INSERT INTO Locations VALUES
+                ('LOC001', 'Area One', 'Point One', 'Range One'),
+                ('LOC002', 'Area Two', 'Point Two', 'Range Two');
+            INSERT INTO Component2_Location_Risk VALUES
+                ('LOC001', 0.8, 'High', 'test'),
+                ('LOC002', 0.4, 'Medium', 'test');
+            """
+        )
+
+    cases = [
+        {
+            "task_id": f"DNG{i:05d}",
+            "task_type": "Dengue Case Inspection",
+            "notification_date": "2026-07-01",
+            "location_id": "LOC001" if i % 2 == 0 else "LOC002",
+            "location_name": "Area One" if i % 2 == 0 else "Area Two",
+            "priority_score": float(90 - i),
+            "priority_level": "High" if i < 3 else "Medium",
+        }
+        for i in range(7)
+    ]
+    complaints = [
+        {
+            "task_id": f"CMP{i:05d}",
+            "task_type": "Citizen Complaint",
+            "received_date": "2026-07-02",
+            "location_id": "LOC001",
+            "location_name": "Area One",
+            "priority_score": 60.0,
+            "priority_level": "Medium",
+        }
+        for i in range(4)
+    ]
+    monkeypatch.setattr(planning_routes, "DATABASE_PATH", database_path)
+    monkeypatch.setattr(planning_routes, "score_cases", lambda _connection, _date: cases)
+    monkeypatch.setattr(planning_routes, "score_complaints", lambda _connection, _date: complaints)
+    monkeypatch.setattr(
+        planning_routes,
+        "calculate_location_activity",
+        lambda _connection, _location, _date: {"activity_score": 50},
+    )
+    monkeypatch.setattr(planning_routes, "_PRIORITY_SNAPSHOT_CACHE", {})
+
+    pages = []
+    for offset in (0, 3, 6, 9):
+        response = client.get(
+            "/api/v1/planning/priorities?limit=3&offset="
+            f"{offset}&planning_date=2026-07-02&date_from=2026-07-01&date_to=2026-07-02"
+        )
+        assert response.status_code == 200
+        pages.extend(response.json()["tasks"])
+        if offset == 0:
+            first_body = response.json()
+
+    task_ids = [row["task_id"] for row in pages]
+    assert len(task_ids) == 11
+    assert len(set(task_ids)) == 11
+    assert first_body["total_matching"] == 11
+    assert first_body["summary"] == {
+        "high": 3,
+        "medium": 8,
+        "low": 0,
+        "review": 0,
+        "total": 11,
+    }
+    loc001 = next(
+        row for row in first_body["location_summary"]
+        if row["location_id"] == "LOC001"
+    )
+    assert loc001["total"] == 8
+    assert loc001["high"] == 2
+    assert loc001["medium"] == 6
+
+    filtered = client.get(
+        "/api/v1/planning/priorities?limit=2&location_id=LOC002"
+        "&planning_date=2026-07-02&date_from=2026-07-01&date_to=2026-07-02"
+    ).json()
+    assert filtered["total_matching"] == 3
+    assert all(row["location_id"] == "LOC002" for row in filtered["tasks"])
+    assert filtered["location_summary"][0]["total"] == 3
+
+
+def test_new_task_after_historical_period_is_returned_in_later_range(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "future-priority.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE Locations (
+                location_id TEXT, village_area TEXT, location_label TEXT,
+                phi_range TEXT
+            );
+            CREATE TABLE Component2_Location_Risk (
+                location_id TEXT, risk_score REAL, risk_level TEXT, score_source TEXT
+            );
+            CREATE TABLE Case_Notifications (notification_date TEXT);
+            CREATE TABLE Citizen_Complaints (received_date TEXT);
+            INSERT INTO Locations VALUES ('LOC001', 'Area One', 'Point', 'Range');
+            INSERT INTO Component2_Location_Risk VALUES ('LOC001', 0.8, 'High', 'test');
+            INSERT INTO Case_Notifications VALUES ('2027-01-02');
+            INSERT INTO Citizen_Complaints VALUES ('2027-01-02');
+            """
+        )
+    monkeypatch.setattr(planning_routes, "DATABASE_PATH", database_path)
+    monkeypatch.setattr(planning_routes, "_PRIORITY_SNAPSHOT_CACHE", {})
+    monkeypatch.setattr(
+        planning_routes,
+        "score_cases",
+        lambda _connection, _date: [{
+            "task_id": "DNG-NEW",
+            "task_type": "Dengue Case Inspection",
+            "notification_date": "2027-01-02",
+            "location_id": "LOC001",
+            "location_name": "Area One",
+            "priority_score": 75.0,
+            "priority_level": "High",
+        }],
+    )
+    monkeypatch.setattr(planning_routes, "score_complaints", lambda _connection, _date: [])
+    monkeypatch.setattr(
+        planning_routes,
+        "calculate_location_activity",
+        lambda _connection, _location, _date: {"activity_score": 50},
+    )
+
+    response = client.get(
+        "/api/v1/planning/priorities?planning_date=2027-01-02"
+        "&date_from=2027-01-01&date_to=2027-01-31"
+    )
+    assert response.status_code == 200
+    assert [row["task_id"] for row in response.json()["tasks"]] == ["DNG-NEW"]
+
+
+def test_priority_snapshot_reused_for_pages_and_invalidated_by_task_store(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "priority-cache.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE Locations (
+                location_id TEXT, village_area TEXT, location_label TEXT,
+                phi_range TEXT
+            );
+            CREATE TABLE Component2_Location_Risk (
+                location_id TEXT, risk_score REAL, risk_level TEXT, score_source TEXT
+            );
+            CREATE TABLE Case_Notifications (notification_date TEXT);
+            CREATE TABLE Citizen_Complaints (received_date TEXT);
+            INSERT INTO Locations VALUES ('LOC001', 'Area One', 'Point', 'Range');
+            INSERT INTO Component2_Location_Risk VALUES ('LOC001', 0.8, 'High', 'test');
+            INSERT INTO Case_Notifications VALUES ('2026-07-02');
+            INSERT INTO Citizen_Complaints VALUES ('2026-07-02');
+            """
+        )
+
+    cases = [{
+        "task_id": "DNG00001",
+        "task_type": "Dengue Case Inspection",
+        "notification_date": "2026-07-02",
+        "location_id": "LOC001",
+        "location_name": "Area One",
+        "priority_score": 80.0,
+        "priority_level": "High",
+    }]
+    calls = {"cases": 0, "complaints": 0}
+
+    def score_case_rows(_connection, _date):
+        calls["cases"] += 1
+        return list(cases)
+
+    def score_complaint_rows(_connection, _date):
+        calls["complaints"] += 1
+        return []
+
+    monkeypatch.setattr(planning_routes, "DATABASE_PATH", database_path)
+    task_store_path = tmp_path / "submitted_tasks.json"
+    monkeypatch.setattr(task_store, "TASK_STORE_PATH", task_store_path)
+    monkeypatch.setattr(planning_routes, "score_cases", score_case_rows)
+    monkeypatch.setattr(planning_routes, "score_complaints", score_complaint_rows)
+    monkeypatch.setattr(
+        planning_routes,
+        "calculate_location_activity",
+        lambda _connection, _location, _date: {"activity_score": 50},
+    )
+    monkeypatch.setattr(planning_routes, "_PRIORITY_SNAPSHOT_CACHE", {})
+
+    first = client.get(
+        "/api/v1/planning/priorities?limit=1&planning_date=2026-07-02"
+    )
+    second = client.get(
+        "/api/v1/planning/priorities?limit=1&offset=1&planning_date=2026-07-02"
+    )
+    assert first.status_code == second.status_code == 200
+    assert calls == {"cases": 1, "complaints": 1}
+
+    task_store_path.write_text("[]", encoding="utf-8")
+    third = client.get(
+        "/api/v1/planning/priorities?limit=1&planning_date=2026-07-02"
+    )
+    assert third.status_code == 200
+    assert calls == {"cases": 2, "complaints": 2}
+
+
+def test_priority_filters_are_applied_before_pagination_and_match_aggregates(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "priority-filter.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE Locations (
+                location_id TEXT, village_area TEXT, location_label TEXT,
+                phi_range TEXT
+            );
+            CREATE TABLE Component2_Location_Risk (
+                location_id TEXT, risk_score REAL, risk_level TEXT, score_source TEXT
+            );
+            CREATE TABLE Case_Notifications (notification_date TEXT);
+            CREATE TABLE Citizen_Complaints (received_date TEXT);
+            INSERT INTO Locations VALUES ('LOC001', 'Area One', 'Point', 'Range');
+            INSERT INTO Component2_Location_Risk VALUES ('LOC001', 0.8, 'High', 'test');
+            INSERT INTO Case_Notifications VALUES ('2026-07-02');
+            INSERT INTO Citizen_Complaints VALUES ('2026-07-02');
+            """
+        )
+    monkeypatch.setattr(planning_routes, "DATABASE_PATH", database_path)
+    monkeypatch.setattr(planning_routes, "_PRIORITY_SNAPSHOT_CACHE", {})
+    monkeypatch.setattr(planning_routes, "score_cases", lambda *_: [
+        {"task_id": f"DNG-{i}", "task_type": "Dengue Case Inspection",
+         "notification_date": "2026-07-02", "location_id": "LOC001",
+         "location_name": "Area One", "priority_score": float(80 + i),
+         "priority_level": "High", "priority_reason": "test"}
+        for i in range(4)
+    ])
+    monkeypatch.setattr(planning_routes, "score_complaints", lambda *_: [])
+    monkeypatch.setattr(
+        planning_routes,
+        "calculate_location_activity",
+        lambda *_: {"activity_score": 50},
+    )
+
+    response = client.get(
+        "/api/v1/planning/priorities?limit=2&offset=0&task_type=cases"
+        "&priority_level=High&location_id=LOC001&search=DNG-"
+        "&planning_date=2026-07-02&date_from=2026-07-01&date_to=2026-07-02"
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_matching"] == 4
+    assert body["summary"]["high"] == 4
+    assert body["summary"]["total"] == 4
+    assert body["location_summary"][0]["total"] == 4
+    assert len(body["tasks"]) == 2
+    assert all(task["task_id"].startswith("DNG-") for task in body["tasks"])
+
+
+def test_priorities_use_selected_as_of_date_and_exclude_future_tasks():
+    response = client.get(
+        "/api/v1/planning/priorities?limit=25&planning_date=2026-07-01"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["planning_date"] == "2026-07-01"
+    assert all(
+        task["notification_date"] <= body["planning_date"]
+        for task in body["cases"]
+    )
+    assert all(
+        task["received_date"] <= body["planning_date"]
+        for task in body["complaints"]
+    )
+
+
+def test_priority_range_returns_all_historical_tasks_inclusive_of_boundaries():
+    pages = []
+    first_body = None
+    for offset in range(0, 7000, 200):
+        response = client.get(
+            "/api/v1/planning/priorities?limit=200&offset="
+            f"{offset}&planning_date=2026-09-30&date_from=2026-04-01&date_to=2026-09-30"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        if first_body is None:
+            first_body = body
+        pages.extend(body["tasks"])
+        if not body["has_next"]:
+            break
+
+    case_rows = [task for task in pages if task["task_type"] != "Citizen Complaint"]
+    complaint_rows = [task for task in pages if task["task_type"] == "Citizen Complaint"]
+    assert first_body["date_from"] == "2026-04-01"
+    assert first_body["date_to"] == "2026-09-30"
+    assert first_body["planning_date"] == "2026-09-30"
+    assert first_body["total_cases"] == 6050
+    assert first_body["total_complaints"] == 811
+    assert len(case_rows) == 6050
+    assert len(complaint_rows) == 811
+    assert len({task["task_id"] for task in pages}) == 6861
+    assert all(task["priority_score"] is not None for task in case_rows)
+    assert all(task["priority_score"] is not None for task in complaint_rows)
+    assert first_body["quality_summary"]["review"] == 0
+    assert first_body["quality_summary"]["provisional_assumption"] == 6050
+    assert all("2026-04-01" <= task["notification_date"] <= "2026-09-30" for task in case_rows)
+    assert all("2026-04-01" <= task["received_date"] <= "2026-09-30" for task in complaint_rows)
+
+
+def test_priority_range_rejects_reversed_dates():
+    reversed_dates = client.get(
+        "/api/v1/planning/priorities?date_from=2026-09-30&date_to=2026-04-01"
+    )
+
+    assert reversed_dates.status_code == 422
+
+
+def test_score_as_of_after_data_does_not_remove_historical_tasks():
+    pages = []
+    first_body = None
+    for offset in range(0, 7000, 200):
+        response = client.get(
+            "/api/v1/planning/priorities?limit=200&offset="
+            f"{offset}&planning_date=2026-10-06&date_from=2026-04-01&date_to=2026-09-30"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        if first_body is None:
+            first_body = body
+        pages.extend(body["tasks"])
+        if not body["has_next"]:
+            break
+
+
+    def test_may_second_scenario_returns_scored_cases_and_complaints():
+        pages = []
+        first_body = None
+        for offset in range(0, 1400, 200):
+            response = client.get(
+                "/api/v1/planning/priorities?limit=200&offset="
+                f"{offset}&planning_date=2026-05-02"
+                "&date_from=2026-04-01&date_to=2026-05-02"
+            )
+            assert response.status_code == 200
+            body = response.json()
+            if first_body is None:
+                first_body = body
+            pages.extend(body["tasks"])
+            if not body["has_next"]:
+                break
+
+        cases = [row for row in pages if row["task_type"] != "Citizen Complaint"]
+        complaints = [row for row in pages if row["task_type"] == "Citizen Complaint"]
+        assert first_body["planning_date"] == "2026-05-02"
+        assert first_body["total_cases"] == 1067
+        assert first_body["total_complaints"] == 139
+        assert len(cases) == 1067
+        assert len(complaints) == 139
+        assert all(row["priority_score"] is not None for row in cases + complaints)
+        assert all(row["priority_level"] in {"High", "Medium", "Low"} for row in cases + complaints)
+        assert first_body["quality_summary"]["review"] == 0
+        assert first_body["quality_summary"]["provisional_assumption"] == len(cases)
+
+    case_rows = [row for row in pages if row["task_type"] != "Citizen Complaint"]
+    complaint_rows = [row for row in pages if row["task_type"] == "Citizen Complaint"]
+    assert first_body["planning_date"] == "2026-10-06"
+    assert len(case_rows) == 6050
+    assert len(complaint_rows) == 811
+    assert all("2026-04-01" <= row["notification_date"] <= "2026-09-30" for row in case_rows)
+    assert all("2026-04-01" <= row["received_date"] <= "2026-09-30" for row in complaint_rows)
+    assert all(row["priority_score"] is None for row in pages)
+    assert all(row["priority_level"] == "Review" for row in pages)
+    assert first_body["quality_summary"]["review"] == 6861
+
+
+def test_locations_returns_component2_risk_and_null_when_missing(
     tmp_path,
     monkeypatch,
 ):
@@ -92,18 +490,18 @@ def test_locations_returns_average_risk_and_null_when_missing(
                 location_label TEXT,
                 data_status TEXT
             );
-            CREATE TABLE Case_Notifications (
+            CREATE TABLE Component2_Location_Risk (
                 location_id TEXT,
-                risk_indicator REAL
+                risk_score REAL,
+                risk_level TEXT,
+                score_source TEXT
             );
             INSERT INTO Locations VALUES
                 ('LOC001', 'MOH', 'Range A', 'Village A', 'Point A', 'SYNTHETIC'),
                 ('LOC002', 'MOH', 'Range B', 'Village B', 'Point B', 'SYNTHETIC');
-            INSERT INTO Case_Notifications VALUES
-                ('LOC001', 0.4),
-                ('LOC001', 0.8),
-                ('LOC001', 1.2),
-                ('LOC002', NULL);
+            INSERT INTO Component2_Location_Risk VALUES
+                ('LOC001', 0.6, 'Medium', 'component2'),
+                ('LOC002', NULL, NULL, 'component2');
             """
         )
 
@@ -116,11 +514,12 @@ def test_locations_returns_average_risk_and_null_when_missing(
         for location in response.json()["locations"]
     }
     assert locations["LOC001"]["location_name"] == "Village A"
-    assert locations["LOC001"]["risk_indicator"] == pytest.approx(0.6)
-    assert locations["LOC002"]["risk_indicator"] is None
+    assert locations["LOC001"]["component2_risk_score"] == pytest.approx(0.6)
+    assert locations["LOC001"]["component2_risk_level"] == "Medium"
+    assert locations["LOC002"]["component2_risk_score"] is None
 
 
-def test_case_task_uses_location_risk_and_rejects_submitted_risk(
+def test_case_task_uses_component2_location_risk_and_rejects_submitted_risk(
     tmp_path,
     monkeypatch,
 ):
@@ -129,7 +528,8 @@ def test_case_task_uses_location_risk_and_rejects_submitted_risk(
         json={
             "task_type": "Dengue Case Inspection",
             "location_id": "LOC001",
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
+            "urgency": "High",
         },
     )
 
@@ -140,16 +540,30 @@ def test_case_task_uses_location_risk_and_rejects_submitted_risk(
         row for row in locations_response.json()["locations"]
         if row["location_id"] == "LOC001"
     )
-    assert task["risk_indicator"] == location["risk_indicator"]
-    assert task["priority_score"] == round(location["risk_indicator"] * 100, 2)
+    assert task["component2_risk_score"] == location["component2_risk_score"]
+    assert task["priority_score"] == sum(
+        factor["contribution"]
+        for factor in task["priority_factors"].values()
+    )
+    assert task["priority_factors"]["location_risk"]["score"] == round(
+        location["component2_risk_score"] * 100,
+        2,
+    )
+    assert set(task["priority_factors"]) == {
+        "location_risk",
+        "area_activity",
+        "waiting_time",
+        "task_urgency",
+    }
 
     rejected = client.post(
         "/api/v1/planning/tasks",
         json={
             "task_type": "Dengue Case Inspection",
             "location_id": "LOC001",
-            "planning_date": "2026-04-01",
-            "risk_indicator": 0.99,
+            "planning_date": "2026-07-01",
+            "urgency": "High",
+            "component2_risk_score": 0.99,
         },
     )
     assert rejected.status_code == 422
@@ -161,7 +575,7 @@ def test_citizen_complaint_keeps_urgency_scoring():
         json={
             "task_type": "Citizen Complaint",
             "location_id": "LOC001",
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
             "urgency": "High",
             "complaint_type": "Potential mosquito breeding site",
         },
@@ -169,8 +583,12 @@ def test_citizen_complaint_keeps_urgency_scoring():
 
     assert response.status_code == 201, response.text
     task = response.json()["task"]
-    assert task["priority_score"] == 90
-    assert task["risk_indicator"] is None
+    assert task["priority_score"] == sum(
+        factor["contribution"]
+        for factor in task["priority_factors"].values()
+    )
+    assert task["priority_factors"]["task_urgency"]["score"] == 90
+    assert task["component2_risk_score"] is not None
 
 
 def test_submitted_case_is_in_priorities_response():
@@ -179,13 +597,17 @@ def test_submitted_case_is_in_priorities_response():
         json={
             "task_type": "Dengue Case Inspection",
             "location_id": "LOC001",
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
+            "urgency": "High",
         },
     )
     assert created.status_code == 201, created.text
     submitted = created.json()["task"]
 
-    response = client.get("/api/v1/planning/priorities?limit=1")
+    response = client.get(
+        "/api/v1/planning/priorities?limit=50&planning_date=2026-07-01"
+        "&date_from=2026-07-01&date_to=2026-07-01"
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -197,6 +619,14 @@ def test_submitted_case_is_in_priorities_response():
     assert returned["location_id"] == submitted["location_id"]
     assert returned["priority_score"] == submitted["priority_score"]
     assert returned["priority_level"] == submitted["priority_level"]
+    assert returned["priority_score"] is not None
+    assert returned["component2_risk_score"] is not None
+    assert set(returned["priority_factors"]) == {
+        "location_risk",
+        "area_activity",
+        "waiting_time",
+        "task_urgency",
+    }
     assert returned["notification_date"] == submitted["planning_date"]
 
 
@@ -206,7 +636,7 @@ def test_submitted_complaint_is_in_priorities_response():
         json={
             "task_type": "Citizen Complaint",
             "location_id": "LOC001",
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
             "urgency": "High",
             "complaint_type": "Potential mosquito breeding site",
         },
@@ -214,7 +644,10 @@ def test_submitted_complaint_is_in_priorities_response():
     assert created.status_code == 201, created.text
     submitted = created.json()["task"]
 
-    response = client.get("/api/v1/planning/priorities?limit=1")
+    response = client.get(
+        "/api/v1/planning/priorities?limit=50&planning_date=2026-07-01"
+        "&date_from=2026-07-01&date_to=2026-07-01"
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -240,7 +673,8 @@ def test_schedule_includes_only_matching_date_tasks_and_marks_capacity(
         json={
             "task_type": "Dengue Case Inspection",
             "location_id": "LOC001",
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
+            "urgency": "High",
         },
     )
     other_date = client.post(
@@ -248,7 +682,7 @@ def test_schedule_includes_only_matching_date_tasks_and_marks_capacity(
         json={
             "task_type": "Citizen Complaint",
             "location_id": "LOC001",
-            "planning_date": "2026-04-15",
+            "planning_date": "2026-07-15",
             "urgency": "Medium",
             "complaint_type": "Standing water",
         },
@@ -256,13 +690,13 @@ def test_schedule_includes_only_matching_date_tasks_and_marks_capacity(
     assert matching.status_code == 201
     assert other_date.status_code == 201
 
-    monkeypatch.setattr(planning_routes, "load_tasks", lambda: [])
+    monkeypatch.setattr(planning_routes, "load_tasks", lambda _plan_date: [])
     monkeypatch.setattr(planning_routes, "load_phis", lambda _: [])
     monkeypatch.setattr(planning_routes, "API_OUTPUT_DIR", tmp_path)
 
     response = client.post(
         "/api/v1/planning/schedule",
-        json={"planning_date": "2026-04-01"},
+        json={"planning_date": "2026-07-01"},
     )
 
     assert response.status_code == 200, response.text
@@ -278,14 +712,14 @@ def test_schedule_includes_only_matching_date_tasks_and_marks_capacity(
 def test_schedule_endpoint():
     response = client.post(
         "/api/v1/planning/schedule",
-        json={"planning_date": "2026-04-01"},
+        json={"planning_date": "2026-07-01"},
     )
 
     assert response.status_code == 200
     body = response.json()
 
     assert body["data_mode"] == "synthetic_research_data"
-    assert body["planning_date"] == "2026-04-01"
+    assert body["planning_date"] == "2026-07-01"
     assert body["solver_status"] in {"OPTIMAL", "FEASIBLE"}
     assert body["scheduled_tasks"] + body["unscheduled_tasks"] == (
         body["total_tasks"]
@@ -306,14 +740,14 @@ def test_reschedule_endpoint():
     # Generate a schedule first, as rescheduling reads its CSV output.
     schedule_response = client.post(
         "/api/v1/planning/schedule",
-        json={"planning_date": "2026-04-01"},
+        json={"planning_date": "2026-07-01"},
     )
     assert schedule_response.status_code == 200
 
     response = client.post(
         "/api/v1/planning/reschedule",
         json={
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
             "unavailable_phi": "PHI02",
             "assume_all_pending": True,
         },
@@ -339,14 +773,14 @@ def test_reschedule_endpoint():
 def test_reschedule_rejects_missing_execution_statuses():
     schedule_response = client.post(
         "/api/v1/planning/schedule",
-        json={"planning_date": "2026-04-01"},
+        json={"planning_date": "2026-07-01"},
     )
     assert schedule_response.status_code == 200
 
     response = client.post(
         "/api/v1/planning/reschedule",
         json={
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
             "unavailable_phi": "PHI02",
             "assume_all_pending": False,
         },
@@ -361,14 +795,14 @@ def test_reschedule_rejects_missing_execution_statuses():
 def test_reschedule_rejects_unknown_phi():
     schedule_response = client.post(
         "/api/v1/planning/schedule",
-        json={"planning_date": "2026-04-01"},
+        json={"planning_date": "2026-07-01"},
     )
     assert schedule_response.status_code == 200
 
     response = client.post(
         "/api/v1/planning/reschedule",
         json={
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
             "unavailable_phi": "PHI99",
             "assume_all_pending": True,
         },
@@ -391,7 +825,7 @@ def test_reschedule_uses_api_generated_schedule(
         tmp_path,
     )
 
-    planning_date = "2026-04-01"
+    planning_date = "2026-07-01"
     schedule_path = tmp_path / f"phi_plan_{planning_date}.csv"
 
     assert not schedule_path.exists()
@@ -431,14 +865,14 @@ def test_reschedule_response_contains_transparency_fields():
     """Verify that reschedule response returns transparency metrics and previous assignment details."""
     schedule_response = client.post(
         "/api/v1/planning/schedule",
-        json={"planning_date": "2026-04-01"},
+        json={"planning_date": "2026-07-01"},
     )
     assert schedule_response.status_code == 200
 
     response = client.post(
         "/api/v1/planning/reschedule",
         json={
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
             "unavailable_phi": "PHI02",
             "assume_all_pending": True,
         },
@@ -513,7 +947,7 @@ def test_reschedule_response_contains_transparency_fields():
     response_phi03 = client.post(
         "/api/v1/planning/reschedule",
         json={
-            "planning_date": "2026-04-01",
+            "planning_date": "2026-07-01",
             "unavailable_phi": "PHI03",
             "assume_all_pending": True,
         },

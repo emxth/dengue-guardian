@@ -2,25 +2,31 @@
 """Planning endpoints for the C3 PHI Planning API."""
 
 import csv
-import math
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from component_3_phi_planning.api import task_store
+from component_3_phi_planning.config import DEFAULT_PLANNING_DATE
 from component_3_phi_planning.api.task_store import (
     NewInspectionTask,
+    TASK_STORE_PATH,
     load_submitted_tasks,
     save_submitted_task,
 )
 from component_3_phi_planning.prioritization.score_tasks import (
+    calculate_task_priority,
     get_priority_level,
-    score_case_risk,
     score_cases,
     score_complaints,
-    score_complaint_urgency,
+)
+from component_3_phi_planning.prioritization.activity_analytics import (
+    calculate_location_activity,
+    get_monthly_location_analytics,
 )
 from component_3_phi_planning.optimization.phi_scheduler import (
     load_phis,
@@ -39,18 +45,155 @@ COMPONENT_DIR = Path(__file__).resolve().parents[2]
 DATABASE_PATH = (
     COMPONENT_DIR
     / "data"
-    / "Kaduwela_C3_Research_Database_V2_SYNTHETIC.sqlite"
+    / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
 )
 
 # Keep API-generated schedules separate from CLI-generated schedules.
 API_OUTPUT_DIR = COMPONENT_DIR / "api" / "output"
+_PRIORITY_SNAPSHOT_CACHE = {}
+
+
+def _priority_cache_key(selected_date):
+    file_signatures = []
+    for path in (
+        DATABASE_PATH,
+        task_store.TASK_STORE_PATH,
+        Path(__file__),
+        Path(__file__).resolve().parents[2] / "prioritization" / "score_tasks.py",
+        Path(__file__).resolve().parents[2] / "prioritization" / "activity_analytics.py",
+        Path(__file__).resolve().parents[2] / "config.py",
+    ):
+        try:
+            stat = path.stat()
+            file_signatures.append((str(path), stat.st_mtime_ns, stat.st_size))
+        except OSError:
+            file_signatures.append((str(path), None, None))
+    return (selected_date.isoformat(), *file_signatures)
+
+
+def _make_priority_page(
+    cases,
+    complaints,
+    location_map,
+    selected_date,
+    date_from,
+    date_to,
+    limit,
+    offset,
+    task_type,
+    priority_level,
+    location_id,
+    search,
+):
+    def in_date_range(task, key):
+        try:
+            task_day = date.fromisoformat(str(task.get(key))[:10])
+        except (TypeError, ValueError):
+            return False
+        return (date_from is None or task_day >= date_from) and (
+            date_to is None or task_day <= date_to
+        )
+
+    all_rows = [
+        task for task in cases if in_date_range(task, "notification_date")
+    ] + [task for task in complaints if in_date_range(task, "received_date")]
+
+    if task_type == "cases":
+        all_rows = [task for task in all_rows if task.get("task_type") != "Citizen Complaint"]
+    elif task_type == "complaints":
+        all_rows = [task for task in all_rows if task.get("task_type") == "Citizen Complaint"]
+    if priority_level != "all":
+        all_rows = [task for task in all_rows if task.get("priority_level") == priority_level]
+    if location_id:
+        all_rows = [task for task in all_rows if task.get("location_id") == location_id]
+    if search:
+        needle = search.casefold().strip()
+        all_rows = [
+            task for task in all_rows
+            if needle in " ".join(str(task.get(key) or "") for key in (
+                "task_id", "task_type", "location_id", "location_name",
+                "location_label", "complaint_type",
+            )).casefold()
+        ]
+
+    all_rows.sort(key=lambda task: (
+        task.get("priority_score") is None,
+        -(task.get("priority_score") or 0),
+        task.get("notification_date") or task.get("received_date") or "",
+        str(task.get("task_id") or ""),
+    ))
+    total_matching = len(all_rows)
+    summary = {
+        "high": sum(task.get("priority_level") == "High" for task in all_rows),
+        "medium": sum(task.get("priority_level") == "Medium" for task in all_rows),
+        "low": sum(task.get("priority_level") == "Low" for task in all_rows),
+        "review": sum(task.get("priority_level") == "Review" for task in all_rows),
+        "total": total_matching,
+    }
+    quality_summary = {
+        "scored": sum(task.get("priority_score") is not None for task in all_rows),
+        "review": summary["review"],
+        "provisional_assumption": sum(
+            task.get("data_quality_status") == "provisional_assumption"
+            for task in all_rows
+        ),
+    }
+    locations = {}
+    for task in all_rows:
+        key = task.get("location_id") or "UNKNOWN"
+        item = locations.setdefault(key, {
+            "location_id": key,
+            "location_name": task.get("location_name") or "Name unavailable",
+            "location_label": task.get("location_label") or "Unknown location",
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "review": 0,
+            "total": 0,
+        })
+        item["total"] += 1
+        bucket = str(task.get("priority_level") or "Review").casefold()
+        item[bucket if bucket in {"high", "medium", "low", "review"} else "review"] += 1
+    location_summary = sorted(
+        locations.values(),
+        key=lambda item: (-item["high"], -item["total"], item["location_name"]),
+    )
+    page_rows = all_rows[offset:offset + limit]
+    page_cases = [task for task in page_rows if task.get("task_type") != "Citizen Complaint"]
+    page_complaints = [task for task in page_rows if task.get("task_type") == "Citizen Complaint"]
+    start = offset + 1 if total_matching and offset < total_matching else 0
+    end = min(offset + limit, total_matching)
+    return {
+        "data_mode": "synthetic_research_data",
+        "scoring_policy": "provisional",
+        "planning_date": selected_date.isoformat(),
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+        "total_cases": sum(task.get("task_type") != "Citizen Complaint" for task in all_rows),
+        "total_complaints": sum(task.get("task_type") == "Citizen Complaint" for task in all_rows),
+        "total_matching": total_matching,
+        "offset": offset,
+        "limit": limit,
+        "page_start": start,
+        "page_end": end,
+        "has_previous": offset > 0,
+        "has_next": offset + limit < total_matching,
+        "summary": summary,
+        "quality_summary": quality_summary,
+        "location_summary": location_summary,
+        "locations": location_map,
+        "tasks": page_rows,
+        "cases": page_cases,
+        "complaints": page_complaints,
+        "note": "Priority records are scored on the selected planning date using synthetic research data and provisional rules.",
+    }
 
 
 class ScheduleRequest(BaseModel):
     """Input parameters for a synthetic PHI planning run."""
 
     planning_date: date = Field(
-        default=date(2026, 4, 1),
+        default=date.fromisoformat(DEFAULT_PLANNING_DATE),
         description="Planning date in the synthetic dataset.",
     )
 
@@ -59,7 +202,7 @@ class RescheduleRequest(BaseModel):
     """Input parameters for a simulated PHI unavailability event."""
 
     planning_date: date = Field(
-        default=date(2026, 4, 1),
+        default=date.fromisoformat(DEFAULT_PLANNING_DATE),
         description="Date of the synthetic PHI schedule.",
     )
     unavailable_phi: str = Field(
@@ -77,7 +220,15 @@ class RescheduleRequest(BaseModel):
 
 @router.get("/priorities")
 def get_priorities(
-    limit: int = Query(default=100, ge=1, le=1000),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    planning_date: date | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    task_type: Literal["all", "cases", "complaints"] = Query(default="all"),
+    priority_level: Literal["all", "High", "Medium", "Low", "Review"] = Query(default="all"),
+    location_id: str | None = Query(default=None, min_length=1, max_length=50),
+    search: str | None = Query(default=None, max_length=100),
 ):
     """Return provisional case and complaint priority scores."""
 
@@ -87,21 +238,43 @@ def get_priorities(
             detail="Synthetic research database was not found.",
         )
 
-    calculated_at = datetime.now().astimezone().isoformat(
-        timespec="seconds"
-    )
     database_uri = DATABASE_PATH.resolve().as_uri() + "?mode=ro"
+
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(
+            status_code=422,
+            detail="date_from must be on or before date_to.",
+        )
 
     try:
         with sqlite3.connect(database_uri, uri=True) as connection:
-            cases = score_cases(connection, calculated_at)
-            complaints = score_complaints(connection, calculated_at)
+            latest_data_date = date.fromisoformat(
+                connection.execute(
+                    "SELECT MAX(notification_date) FROM Case_Notifications"
+                ).fetchone()[0]
+            )
+            selected_date = planning_date or date_to or latest_data_date
+            cache_key = _priority_cache_key(selected_date)
+            cached_snapshot = _PRIORITY_SNAPSHOT_CACHE.get(cache_key)
+            if cached_snapshot is not None:
+                cases, complaints, location_map = cached_snapshot
+                return _make_priority_page(
+                    cases, complaints, location_map, selected_date, date_from,
+                    date_to, limit, offset, task_type, priority_level,
+                    location_id, search,
+                )
+            cases = score_cases(connection, selected_date)
+            complaints = score_complaints(connection, selected_date)
 
             # Query authoritative synthetic locations lookup
             cursor = connection.cursor()
             cursor.execute(
-                "SELECT location_id, village_area, location_label, phi_range "
-                "FROM Locations"
+                "SELECT locations.location_id, locations.village_area, "
+                "locations.location_label, locations.phi_range, "
+                "risk.risk_score, risk.risk_level, risk.score_source "
+                "FROM Locations AS locations "
+                "LEFT JOIN Component2_Location_Risk AS risk "
+                "ON risk.location_id = locations.location_id"
             )
             location_map = {
                 row[0]: {
@@ -109,8 +282,17 @@ def get_priorities(
                     "location_name": row[1] if row[1] else "Name unavailable",
                     "location_label": row[2] if row[2] else "Synthetic Point",
                     "phi_range": row[3] if row[3] else "Unknown Range",
+                    "component2_risk_score": row[4],
+                    "component2_risk_level": row[5],
+                    "component2_score_source": row[6],
                 }
                 for row in cursor.fetchall()
+            }
+            activity_by_location = {
+                location_id: calculate_location_activity(
+                    connection, location_id, selected_date
+                )
+                for location_id in location_map
             }
 
             for item in cases:
@@ -160,14 +342,10 @@ def get_priorities(
 
         task_id = task.get("scenario_task_id") or task.get("task_id")
         source_id = task.get("source_id")
-        priority_score = task.get("priority_score")
-        priority_level = task.get("priority_level")
         location_id = task.get("location_id")
         planning_date = task.get("planning_date")
-        priority_reason = task.get("priority_reason")
 
         try:
-            numeric_score = float(priority_score)
             parsed_date = date.fromisoformat(str(planning_date))
         except (TypeError, ValueError):
             continue
@@ -177,9 +355,6 @@ def get_priorities(
             or not location_id
             or location_id not in location_map
             or parsed_date.isoformat() != planning_date
-            or not priority_reason
-            or not math.isfinite(numeric_score)
-            or priority_level not in {"High", "Medium", "Low"}
             or str(task_id) in sqlite_task_ids
             or (source_id is not None and str(source_id) in sqlite_task_ids)
         ):
@@ -189,7 +364,6 @@ def get_priorities(
         priority_task = {
             **task,
             "task_id": task_id,
-            "priority_score": numeric_score,
             "location_name": task.get(
                 "location_name", location.get("location_name", "Name unavailable")
             ),
@@ -202,55 +376,131 @@ def get_priorities(
         }
 
         if task.get("task_type") == "Dengue Case Inspection":
-            risk_indicator = task.get("risk_indicator")
-            try:
-                numeric_risk = float(risk_indicator)
-            except (TypeError, ValueError):
+            if task.get("complaint_type") is not None:
                 continue
-            if not math.isfinite(numeric_risk) or not 0 <= numeric_risk <= 1:
+            if task.get("inspection_required", True) is not True:
+                priority_task.update({
+                    "priority_score": None,
+                    "priority_level": "Review",
+                    "priority_reason": "Review: case is not eligible for inspection",
+                    "priority_factors": {},
+                    "data_quality_status": "review",
+                })
+                submitted_cases.append(priority_task)
                 continue
-            expected_score, _ = score_case_risk(numeric_risk)
-            if (
-                expected_score != numeric_score
-                or priority_level != get_priority_level(expected_score)
-                or task.get("urgency") is not None
-                or task.get("complaint_type") is not None
-            ):
-                continue
-            priority_task["risk_indicator"] = numeric_risk
+            priority_task["component2_risk_score"] = location.get(
+                "component2_risk_score"
+            )
+            priority_task["component2_risk_level"] = location.get(
+                "component2_risk_level"
+            )
+            priority_task["component2_score_source"] = location.get(
+                "component2_score_source"
+            )
             priority_task["notification_date"] = planning_date
-            submitted_cases.append(priority_task)
+            task_date = planning_date
         elif task.get("task_type") == "Citizen Complaint":
-            if not task.get("urgency") or not task.get("complaint_type"):
-                continue
-            expected_score, _ = score_complaint_urgency(task["urgency"])
-            if (
-                expected_score != numeric_score
-                or priority_level != get_priority_level(expected_score)
-                or task.get("risk_indicator") is not None
-            ):
-                continue
             priority_task["received_date"] = planning_date
+            task_date = planning_date
+        else:
+            continue
+
+        activity_data = activity_by_location[location_id]
+        priority_score, priority_reason, priority_factors = calculate_task_priority(
+            priority_task.get("component2_risk_score"),
+            priority_task.get("urgency"),
+            task_date,
+            selected_date,
+            activity_data,
+            "case" if task.get("task_type") == "Dengue Case Inspection" else "complaint",
+        )
+        priority_task.update(activity_data)
+        quality_status = (
+            "review" if priority_score is None else
+            "provisional_assumption"
+            if priority_factors["task_urgency"].get("assumption") else "complete"
+        )
+        if priority_score is None:
+            priority_task.update({
+                "priority_score": None,
+                "priority_level": "Review",
+                "priority_reason": priority_reason,
+                "priority_factors": priority_factors,
+                "data_quality_status": quality_status,
+            })
+            if task.get("task_type") == "Dengue Case Inspection":
+                submitted_cases.append(priority_task)
+            else:
+                submitted_complaints.append(priority_task)
+            continue
+        priority_task.update({
+            "priority_score": priority_score,
+            "priority_level": get_priority_level(priority_score),
+            "priority_reason": priority_reason,
+            "priority_factors": priority_factors,
+            "data_quality_status": quality_status,
+        })
+        if task.get("task_type") == "Dengue Case Inspection":
+            submitted_cases.append(priority_task)
+        else:
             submitted_complaints.append(priority_task)
 
-    returned_cases = cases[:limit] + submitted_cases
-    returned_complaints = complaints[:limit] + submitted_complaints
+    cases = cases + submitted_cases
+    complaints = complaints + submitted_complaints
+    _PRIORITY_SNAPSHOT_CACHE.clear()
+    _PRIORITY_SNAPSHOT_CACHE[cache_key] = (cases, complaints, location_map)
+    return _make_priority_page(
+        cases, complaints, location_map, selected_date, date_from,
+        date_to, limit, offset, task_type, priority_level, location_id, search,
+    )
 
-    return {
-        "data_mode": "synthetic_research_data",
-        "scoring_policy": "provisional",
-        "note": (
-            "Results use synthetic research data and provisional rules. "
-            "They are not validated operational PHI recommendations."
-        ),
-        "total_cases": len(cases) + len(submitted_cases),
-        "total_complaints": len(complaints) + len(submitted_complaints),
-        "returned_cases": len(returned_cases),
-        "returned_complaints": len(returned_complaints),
-        "locations": location_map,
-        "cases": returned_cases,
-        "complaints": returned_complaints,
-    }
+
+@router.get("/analytics/monthly")
+def get_monthly_analytics(
+    location_id: str = Query(min_length=1, max_length=50),
+    metric: Literal["cases", "complaints"] = Query(default="cases"),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+):
+    """Return location-filtered monthly record counts with coverage metadata."""
+    if not DATABASE_PATH.is_file():
+        raise HTTPException(
+            status_code=500,
+            detail="Synthetic research database was not found.",
+        )
+
+    try:
+        with sqlite3.connect(
+            DATABASE_PATH.resolve().as_uri() + "?mode=ro",
+            uri=True,
+        ) as connection:
+            location = connection.execute(
+                "SELECT location_id, village_area FROM Locations WHERE location_id = ?",
+                (location_id,),
+            ).fetchone()
+            if location is None:
+                raise HTTPException(status_code=422, detail="Unknown location_id.")
+
+            selected_year = year
+            if selected_year is None:
+                table = "Case_Notifications" if metric == "cases" else "Citizen_Complaints"
+                date_column = "notification_date" if metric == "cases" else "received_date"
+                latest_date = connection.execute(
+                    f"SELECT MAX({date_column}) FROM {table}"
+                ).fetchone()[0]
+                selected_year = date.fromisoformat(latest_date).year if latest_date else date.today().year
+
+            result = get_monthly_location_analytics(
+                connection, location_id, selected_year, metric
+            )
+            result["location_name"] = location[1]
+            return result
+    except HTTPException:
+        raise
+    except (sqlite3.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not calculate monthly analytics: {exc}",
+        ) from exc
 
 
 @router.get("/locations")
@@ -276,18 +526,11 @@ def get_locations():
                     locations.village_area,
                     locations.village_area AS location_name,
                     locations.location_label,
-                    locations.data_status,
-                    risk.risk_indicator
+                    risk.risk_score AS component2_risk_score,
+                    risk.risk_level AS component2_risk_level,
+                    risk.score_source AS component2_score_source
                 FROM Locations AS locations
-                LEFT JOIN (
-                    SELECT
-                        location_id,
-                        AVG(risk_indicator) AS risk_indicator
-                    FROM Case_Notifications
-                    WHERE risk_indicator IS NOT NULL
-                        AND risk_indicator BETWEEN 0 AND 1
-                    GROUP BY location_id
-                ) AS risk
+                LEFT JOIN Component2_Location_Risk AS risk
                     ON risk.location_id = locations.location_id
                 ORDER BY
                     locations.phi_range,
@@ -325,22 +568,19 @@ def create_inspection_task(request: NewInspectionTask):
             location_row = connection.execute(
                 """
                 SELECT
-                    location_id,
-                    moh_area,
-                    phi_range,
-                    village_area,
-                    village_area AS location_name,
-                    location_label,
-                    data_status,
-                    (
-                        SELECT AVG(risk_indicator)
-                        FROM Case_Notifications
-                        WHERE Case_Notifications.location_id = Locations.location_id
-                            AND risk_indicator IS NOT NULL
-                            AND risk_indicator BETWEEN 0 AND 1
-                    ) AS risk_indicator
-                FROM Locations
-                WHERE location_id = ?
+                    locations.location_id,
+                    locations.moh_area,
+                    locations.phi_range,
+                    locations.village_area,
+                    locations.village_area AS location_name,
+                    locations.location_label,
+                    risk.risk_score AS component2_risk_score,
+                    risk.risk_level AS component2_risk_level,
+                    risk.score_source AS component2_score_source
+                FROM Locations AS locations
+                LEFT JOIN Component2_Location_Risk AS risk
+                    ON risk.location_id = locations.location_id
+                WHERE locations.location_id = ?
                 """,
                 (request.location_id,),
             ).fetchone()
@@ -365,8 +605,17 @@ def create_inspection_task(request: NewInspectionTask):
                         "Choose a supported planning date."
                     ),
                 )
+            activity_data = calculate_location_activity(
+                connection,
+                request.location_id,
+                request.planning_date,
+            )
 
-        record = save_submitted_task(request, dict(location_row))
+        record = save_submitted_task(
+            request,
+            dict(location_row),
+            activity_data,
+        )
         return {
             "message": "Inspection task created successfully.",
             "task": record,
@@ -402,27 +651,87 @@ def create_schedule(request: ScheduleRequest):
     planning_date = request.planning_date.isoformat()
 
     try:
-        tasks = load_tasks()
-        submitted_tasks = [
-            task
-            for task in load_submitted_tasks()
-            if task.get("planning_date") == planning_date
-            and task.get("status") == "Pending"
-        ]
+        tasks = load_tasks(planning_date)
+        submitted_tasks = []
+        review_tasks = []
+        with sqlite3.connect(DATABASE_PATH) as connection:
+            connection.row_factory = sqlite3.Row
+            locations = {
+                row["location_id"]: dict(row)
+                for row in connection.execute(
+                    "SELECT locations.location_id, locations.moh_area, "
+                    "locations.phi_range, locations.village_area, "
+                    "locations.location_label, risk.risk_score, risk.risk_level, "
+                    "risk.score_source FROM Locations AS locations "
+                    "LEFT JOIN Component2_Location_Risk AS risk "
+                    "ON risk.location_id = locations.location_id"
+                )
+            }
+            activity_by_location = {}
+            for task in load_submitted_tasks():
+                if (
+                    task.get("planning_date") != planning_date
+                    or task.get("status") != "Pending"
+                ):
+                    continue
+                location_id = task.get("location_id")
+                location = locations.get(location_id)
+                if location is None:
+                    continue
+                if location_id not in activity_by_location:
+                    activity_by_location[location_id] = calculate_location_activity(
+                        connection, location_id, request.planning_date
+                    )
+                task_type = task.get("task_type")
+                score, reason, factors = calculate_task_priority(
+                    location.get("risk_score"),
+                    task.get("urgency"),
+                    task.get("planning_date"),
+                    request.planning_date,
+                    activity_by_location[location_id],
+                    "case" if task_type == "Dengue Case Inspection" else "complaint",
+                )
+                scheduled_task = {
+                    **task,
+                    "component2_risk_score": location.get("risk_score"),
+                    "component2_risk_level": location.get("risk_level"),
+                    "component2_score_source": location.get("score_source"),
+                    "moh_area": location.get("moh_area"),
+                    "phi_range": location.get("phi_range"),
+                    "village_area": location.get("village_area"),
+                    "location_label": location.get("location_label"),
+                    "priority_score": score,
+                    "priority_level": get_priority_level(score),
+                    "priority_reason": reason,
+                    "priority_factors": factors,
+                    **activity_by_location[location_id],
+                }
+                if score is None:
+                    scheduled_task.update({
+                        "assigned_phi": "",
+                        "start_time": "",
+                        "end_time": "",
+                        "status": "Unscheduled",
+                        "data_quality_status": "review",
+                        "reason": reason,
+                    })
+                    review_tasks.append(scheduled_task)
+                else:
+                    scheduled_task["data_quality_status"] = "complete"
+                    submitted_tasks.append(scheduled_task)
         tasks.extend(submitted_tasks)
         phis = load_phis(planning_date)
 
         if not tasks:
-            raise HTTPException(
-                status_code=422,
-                detail="No eligible tasks were found for the planning scenario.",
+            plan = review_tasks
+            solver_status = "NO_ELIGIBLE_TASKS"
+        else:
+            plan, solver_status = solve_schedule(
+                tasks,
+                phis,
+                planning_date,
             )
-
-        plan, solver_status = solve_schedule(
-            tasks,
-            phis,
-            planning_date,
-        )
+            plan.extend(review_tasks)
 
         if not plan:
             raise HTTPException(
@@ -472,6 +781,9 @@ def create_schedule(request: ScheduleRequest):
         "total_tasks": len(plan),
         "scheduled_tasks": scheduled_count,
         "unscheduled_tasks": len(plan) - scheduled_count,
+        "review_tasks": sum(
+            row.get("data_quality_status") == "review" for row in plan
+        ),
         "schedule_saved": True,
         "tasks": plan,
         "note": (
