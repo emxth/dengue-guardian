@@ -22,13 +22,13 @@ The current SQLite dataset is synthetic and provisional. Its records will be use
 
 | ID | Factor | Relevant Data | Purpose |
 |---|---|---|---|
-| PF01 | Dengue risk information | `risk_indicator` | Represent the risk associated with an inspection task. |
-| PF02 | Case notification | `task_type`, `inspection_required` | Identify notified cases that require inspection. |
-| PF03 | Citizen complaint | `complaint_type` | Consider reported issues requiring PHI attention. |
-| PF04 | Complaint urgency | `urgency` | Distinguish urgent complaints from less urgent reports. |
-| PF05 | Follow-up requirement | `follow_up_required` | Identify tasks that require a follow-up inspection. |
+| PF01 | Component 2 location risk (50%) | `Component2_Location_Risk.risk_score`, joined by `location_id` | Validate 0–1, scale to 0–100. Current rows are untimestamped development seeds. |
+| PF02 | Area dengue activity (20%) | `Case_Notifications` by location/date | `A = 0.50D + 0.50M`: trailing 7-day case rate plus month-to-date rate relative to at least one configured, fully observed prior month. |
+| PF03 | Waiting time (15%) | Task notification/receipt date and planning date | Elapsed days normalized over a configured 30-day cap. |
+| PF04 | Task urgency (15%) | Explicit task urgency | High/Medium/Low map to 90/60/30. Case historical data has no urgency and is marked Review; new case submissions require one. |
+| PF05 | Follow-up requirement | `follow_up_required` | Remains a workflow consideration and does not currently create tasks or affect priority. |
 
-These factors are proposed for the initial design. Their exact definitions, relative importance and scoring rules will be validated before final implementation.
+The initial 50/20/15/15 weights and normalization settings are centrally configurable in `config.py` and documented in `priority_scoring_rules.md`; all require sensitivity analysis and research/domain validation.
 
 ## 4. Operational Planning Rules
 
@@ -64,7 +64,7 @@ The priority mechanism is expected to produce the following fields:
 | `priority_reason` | Explanation of the factors influencing the priority |
 | `calculated_at` | Date and time when the priority was calculated |
 
-The final scoring formula, category thresholds and factor weights have not yet been selected. They will be established through research evidence, domain validation and experimental evaluation.
+The API returns `priority_factors` containing normalized inputs, weights and weighted contributions, along with the overall score and explanation.
 
 ## 7. Data Handling and Design Limitations
 
@@ -90,6 +90,6 @@ The final evaluation measures and acceptance criteria will be refined during imp
 
 ## 9. Current Design Decision
 
-The initial Component 3 design will separate inspection prioritization from PHI allocation, scheduling and route optimization. Risk information, case notifications, complaint urgency and follow-up requirements will be investigated as priority factors. PHI availability and capacity will constrain allocation and scheduling, while travel distance and time will support routing.
+The initial Component 3 design will separate inspection prioritization from PHI allocation, scheduling and route optimization. Component 2 risk information, case notifications, complaint urgency and follow-up requirements will be investigated as priority factors. PHI availability and capacity will constrain allocation and scheduling, while travel distance and time will support routing.
 
-The priority mechanism will be implemented only after the factor definitions and scoring approach have been reviewed and documented.
+The current case-specific and complaint-weighted models are provisional experimental implementations. Missing or invalid inputs produce a Review status rather than a fabricated score.

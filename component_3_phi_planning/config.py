@@ -36,14 +36,30 @@ SOLVER = "or_tools"  # default – subject to change after benchmarking
 # Prioritisation settings
 # ---------------------------------------------------------------------------
 PRIORITIZATION = {
-    "risk_score_weights": {
-        "case_count": 0.40,
-        "historical_incidence": 0.25,
-        "environmental_index": 0.20,
-        "population_density": 0.15,
+    # Provisional research settings. Tune these centrally for sensitivity runs.
+    "weights": {
+        "location_risk": 0.50,
+        "area_activity": 0.20,
+        "waiting_time": 0.15,
+        "task_urgency": 0.15,
     },
-    "top_k_zones": 20,  # number of high-priority zones passed to scheduler
+    "activity_weights": {"daily": 0.50, "monthly": 0.50},
+    "recent_activity_window_days": 7,
+    "daily_case_count_cap": 7,
+    "monthly_baseline_months": 1,
+    "monthly_activity_max_ratio": 2.0,
+    "waiting_time_cap_days": 30,
+    # Legacy case notifications have no urgency column. Use a documented,
+    # neutral routine-case baseline and expose it as an assumption per record.
+    "case_default_urgency_score": 60,
+    "case_urgency_scores": {"high": 90, "medium": 60, "low": 30},
+    "complaint_urgency_scores": {"high": 90, "medium": 60, "low": 30},
+    "component2_risk_scale": 100,
+    "high_threshold": 70,
+    "medium_threshold": 40,
+    "top_k_zones": 20,
 }
+DEFAULT_PLANNING_DATE = "2026-07-01"
 
 # ---------------------------------------------------------------------------
 # PHI allocation settings
