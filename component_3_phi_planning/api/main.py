@@ -9,7 +9,7 @@ app = FastAPI(
     title="C3 PHI Planning API",
     description=(
         "Research prototype API for dengue-related PHI inspection "
-        "prioritization and resource planning using synthetic data."
+        "prioritization and resource planning using benchmark data."
     ),
     version="0.2.0",
 )

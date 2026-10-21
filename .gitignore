@@ -56,7 +56,7 @@ Thumbs.db
 
 # Project-specific generated artifacts & data
 *.csv
-component_4_prevent/data/synthetic/*.csv
+component_4_prevent/data/benchmark/*.csv
 component_4_prevent/data/processed/*.csv
 component_4_prevent/ml_engine/saved_models/*.pkl
 !component_4_prevent/ml_engine/saved_models/.gitkeep

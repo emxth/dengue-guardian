@@ -8,7 +8,7 @@ from preprocess import load_and_preprocess_data
 
 def train_model():
     print("Loading and preprocessing data...")
-    X_train, X_test, y_train, y_test = load_and_preprocess_data('../data/synthetic/phi_intervention_benchmark.csv')
+    X_train, X_test, y_train, y_test = load_and_preprocess_data('../data/benchmark/phi_intervention_benchmark.csv')
     
     print("Training XGBoost Regressor...")
     model = XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42)

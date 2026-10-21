@@ -35,7 +35,7 @@ engine = None
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MODEL_PATH    = os.path.join(_HERE, "saved_models", "xgboost_dengue_model.json")
 _FEATURES_PATH = os.path.join(_HERE, "saved_models", "model_features.pkl")
-_BENCHMARK_CSV = os.path.join(_HERE, "../data/synthetic/phi_intervention_benchmark.csv")
+_BENCHMARK_CSV = os.path.join(_HERE, "../data/benchmark/phi_intervention_benchmark.csv")
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
 

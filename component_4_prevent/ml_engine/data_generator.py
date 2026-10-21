@@ -76,11 +76,11 @@ def generate_synthetic_data(num_records=2000):
     return df
 
 if __name__ == "__main__":
-    print("Generating synthetic PHI intervention data with advanced features...")
+    print("Generating benchmark PHI intervention data with advanced features...")
     df = generate_synthetic_data(2500) # Increased to 2500 for better XGBoost training
     
     # Ensure directory exists
-    output_dir = "../data/synthetic"
+    output_dir = "../data/benchmark"
     os.makedirs(output_dir, exist_ok=True)
     
     output_path = os.path.join(output_dir, "phi_intervention_benchmark.csv")

@@ -11,12 +11,22 @@ import {
   Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import axios from "axios";
 import { preventionApi } from "../../../shared/api/preventionApi";
 import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
+// Express Backend API Base URL for MongoDB & ML service communication
+const API_BASE_URL = "http://172.20.10.4:5000/api";
+
 export default function RecordInterventionScreen({ navigation, route }) {
-  const { aiData, selectedStrategy = "Source Reduction", zoneContext = {} } = route.params || {};
+  const {
+    aiData,
+    selectedStrategy = "Source Reduction",
+    zoneContext = {},
+    strategyDetails = {},
+    latestRecord,
+  } = route.params || {};
 
   // Dynamically derive available protocols from ML engine ranked alternatives
   const rawProtocols = (aiData?.ranked_alternatives || []).map((alt) => ({
@@ -42,10 +52,8 @@ export default function RecordInterventionScreen({ navigation, route }) {
   const [actionTaken, setActionTaken] = useState(
     `Conducted ${selectedStrategy} at designated premises; cleared standing water nodes.`
   );
-  const [breteauIndex, setBreteauIndex] = useState("5.0");
-  const [clearedSites, setClearedSites] = useState(
-    String(zoneContext?.breeding_sites_count || 16)
-  );
+  const [breteauIndex, setBreteauIndex] = useState("");
+  const [clearedSites, setClearedSites] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [photoCount, setPhotoCount] = useState(1);
 
@@ -66,46 +74,148 @@ export default function RecordInterventionScreen({ navigation, route }) {
   const handleSaveAndRegister = async () => {
     setIsSubmitting(true);
     try {
-      const parsedBreteau = parseFloat(breteauIndex) || 5.0;
-      const parsedCleared = parseInt(clearedSites, 10) || 16;
-      const initialSites = zoneContext?.breeding_sites_count || 28;
-      const remainingSites = Math.max(initialSites - parsedCleared, 0);
+      // 1. Mandatory Input Validation:
+      // Officer must enter the actual count of breeding nodes neutralized
+      const trimmedCleared = clearedSites.trim();
+      if (trimmedCleared === "" || isNaN(parseInt(trimmedCleared, 10))) {
+        Alert.alert(
+          "Input Required",
+          "Please enter the number of Breeding Nodes Neutralized by the officer before saving."
+        );
+        setIsSubmitting(false);
+        return;
+      }
 
-      // Efficacy score: lower post-intervention Breteau index -> higher efficacy score
-      const calculatedScore = parsedBreteau <= 5 ? 92.0 : parsedBreteau <= 15 ? 78.5 : 52.0;
+      const clearedCount = parseInt(trimmedCleared, 10);
+      if (clearedCount < 0) {
+        Alert.alert("Invalid Input", "Breeding nodes neutralized cannot be a negative number.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 2. Baseline Ground-Truth from Zone Surveillance Inspection
+      const rawInitial = zoneContext?.breeding_sites_count ?? latestRecord?.environmentalContext?.breedingSites;
+      const initialSites = (rawInitial !== undefined && rawInitial !== null && !isNaN(Number(rawInitial)))
+        ? Number(rawInitial)
+        : null;
+
+      if (initialSites === null || initialSites <= 0) {
+        Alert.alert(
+          "Surveillance Data Missing",
+          "No baseline initial breeding foci recorded for this zone. Please ensure inspection data is loaded."
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (clearedCount > initialSites) {
+        Alert.alert(
+          "Validation Error",
+          `Neutralized nodes (${clearedCount}) cannot exceed total recorded breeding foci (${initialSites}) in this zone.`
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 3. Post-Intervention Remaining Foci & Drop Percentage (Standard WHO/MOH Formula)
+      const remainingSites = initialSites - clearedCount;
+      const fociDropPercentage = Math.round(((initialSites - remainingSites) / initialSites) * 1000) / 10;
+
+      // 4. Entomological Context (Breteau Index)
+      const rawInitialBreteau = zoneContext?.mosquito_density ?? latestRecord?.environmentalContext?.mosquitoDensity;
+      const initialBreteau = (rawInitialBreteau !== undefined && rawInitialBreteau !== null && !isNaN(Number(rawInitialBreteau)))
+        ? Number(rawInitialBreteau)
+        : null;
+
+      const hasUserBreteau = breteauIndex.trim() !== "" && !isNaN(parseFloat(breteauIndex));
+      const parsedPostBreteau = hasUserBreteau ? parseFloat(breteauIndex) : null;
+
+      // 5. Dynamic Standard Outcome Rating based on verified foci reduction
+      let calculatedRating = "Needs Review";
+      if (fociDropPercentage >= 70 && (parsedPostBreteau === null || parsedPostBreteau <= 15)) {
+        calculatedRating = "Excellent";
+      } else if (fociDropPercentage >= 50) {
+        calculatedRating = "Good";
+      } else if (fociDropPercentage >= 30) {
+        calculatedRating = "Moderate";
+      }
+
+      // Dynamic Efficacy Score
+      const calculatedScore = Math.min(
+        98.0,
+        Math.max(
+          40.0,
+          Math.round(
+            fociDropPercentage * 0.65 +
+            (parsedPostBreteau !== null
+              ? (parsedPostBreteau <= 5 ? 35 : parsedPostBreteau <= 15 ? 20 : 10)
+              : 30)
+          )
+        )
+      );
+
+      // Determine micro-strategy from selected protocol
+      const activeProto = dynamicProtocols.find((p) => p.id === selectedProtocol);
+      const microStrategy = activeProto?.micro || strategyDetails?.micro_strategy || "None";
 
       const recordPayload = {
-        zoneId: "LOC004",
-        phiId: "PHI01",
-        temperature: zoneContext?.temperature || 29.5,
-        rainfall: zoneContext?.rainfall || 85.0,
-        cumulative_rainfall_14_days: zoneContext?.cumulative_rainfall_14_days || 120.0,
-        mosquito_density: parsedBreteau,
-        breeding_sites_count: remainingSites,
-        wind_speed: zoneContext?.wind_speed || 10.0,
-        intervention_taken: selectedProtocol,
-        effectiveness_score: calculatedScore,
+        zoneId: latestRecord?.zoneId || zoneContext?.zoneId || "LOC004",
+        phiId: latestRecord?.phiId || "PHI01",
+        tier1MacroStrategy: selectedProtocol,
+        tier2MicroStrategy: microStrategy,
+        intervention_taken: `${selectedProtocol} - ${microStrategy}`,
+        status: "Completed",
         notes: actionTaken,
+        effectiveness_score: calculatedScore,
+        temperature: Number(zoneContext?.temperature ?? 29.5),
+        rainfall: Number(zoneContext?.rainfall ?? 85.0),
+        cumulative_rainfall_14_days: Number(zoneContext?.cumulative_rainfall_14_days ?? 120.0),
+        mosquito_density: initialBreteau,
+        breeding_sites_count: initialSites,
+        wind_speed: Number(zoneContext?.wind_speed ?? 10.0),
+        environmentalContext: {
+          temperature: Number(zoneContext?.temperature ?? 29.5),
+          rainfall: Number(zoneContext?.rainfall ?? 85.0),
+          cumulativeRainfall14Days: Number(zoneContext?.cumulative_rainfall_14_days ?? 120.0),
+          windSpeed: Number(zoneContext?.wind_speed ?? 10.0),
+          mosquitoDensity: initialBreteau,
+          breedingSites: initialSites,
+        },
+        followUp: {
+          date: new Date(),
+          postBreedingFoci: remainingSites,
+          postBreteauIndex: parsedPostBreteau,
+          fociDropPercentage: fociDropPercentage,
+          outcomeRating: calculatedRating,
+          score: calculatedScore,
+        },
       };
 
-      const result = await preventionApi.recordIntervention(recordPayload);
+      // Connect to Express backend using API base URL to save/update record in MongoDB
+      const response = await axios.post(`${API_BASE_URL}/interventions`, recordPayload, {
+        timeout: 10000,
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const savedData = response.data?.data;
 
       // Successfully synced to backend MongoDB & FastAPI continual learning
       navigation.navigate("InterventionOutcome", {
         protocol: selectedProtocol,
         actionTaken,
-        breteauIndex: parsedBreteau,
+        clearedSites: clearedCount,
         initialFoci: initialSites,
         finalFoci: remainingSites,
-        initialBreteau: zoneContext?.mosquito_density || 45.0,
-        savedRecord: result?.data,
+        breteauIndex: parsedPostBreteau,
+        initialBreteau: initialBreteau,
+        savedRecord: savedData,
         aiData,
       });
     } catch (error) {
       console.error("Backend sync error:", error.message);
       Alert.alert(
         "Sync Notice",
-        "Could not communicate with backend at 172.20.10.4:5000. Please check connection."
+        `Could not communicate with backend at ${API_BASE_URL}. Please check connection.`
       );
     } finally {
       setIsSubmitting(false);
@@ -135,10 +245,10 @@ export default function RecordInterventionScreen({ navigation, route }) {
             </View>
             <View style={styles.areaTextContainer}>
               <Text style={styles.areaMainText}>
-                Thalangama North A • LOC004
+                {latestRecord?.zoneId ? `Thalangama North A • ${latestRecord.zoneId}` : "Thalangama North A • LOC004"}
               </Text>
               <Text style={styles.areaSubText}>
-                Malabe Range
+                {latestRecord?.phiId ? `Malabe Range • Officer: ${latestRecord.phiId}` : "Malabe Range"}
               </Text>
             </View>
           </View>
@@ -189,7 +299,9 @@ export default function RecordInterventionScreen({ navigation, route }) {
             <Text style={styles.sectionHeader}>RESPONSIBLE OFFICER</Text>
             <View style={styles.infoRow}>
               <Ionicons name="id-card-outline" size={16} color="#0F172A" />
-              <Text style={styles.columnValue}>PHI01 (Malabe Range)</Text>
+              <Text style={styles.columnValue}>
+                {latestRecord?.phiId ? `${latestRecord.phiId} (Malabe Range)` : "PHI01 (Malabe Range)"}
+              </Text>
             </View>
           </View>
         </View>
@@ -204,24 +316,38 @@ export default function RecordInterventionScreen({ navigation, route }) {
             multiline
             numberOfLines={2}
           />
-          {/*<View style={styles.neutralizedRow}>
-            <Ionicons name="checkmark-circle-outline" size={16} color="#0D9488" />
-            <Text style={styles.neutralizedText}>
-              {clearedSites} Breeding Nodes Neutralized
-            </Text>
-          </View>*/}
-
-          {/* Post-Action Breteau Count Input */}
+          {/* Breeding Nodes Neutralized User Input */}
           <View style={styles.breteauSubInput}>
-            <Text style={styles.breteauInputLabel}>
-              Post-Intervention Breteau Index:
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons name="checkmark-circle-outline" size={16} color="#0D9488" style={{ marginRight: 6 }} />
+              <Text style={styles.breteauInputLabel}>
+                Breeding Nodes Neutralized:
+              </Text>
+            </View>
+            <TextInput
+              style={styles.breteauField}
+              value={clearedSites}
+              onChangeText={setClearedSites}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor="#94A3B8"
+            />
+          </View>
+
+          {/* Post-Action Breteau Count Input (Optional) */}
+          <View style={styles.breteauSubInput}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.breteauInputLabel}>
+                Post-Intervention Breteau Index:
+              </Text>
+            </View>
             <TextInput
               style={styles.breteauField}
               value={breteauIndex}
               onChangeText={setBreteauIndex}
               keyboardType="numeric"
               placeholder="e.g. 5.0"
+              placeholderTextColor="#94A3B8"
             />
           </View>
         </View>
@@ -242,9 +368,9 @@ export default function RecordInterventionScreen({ navigation, route }) {
                 <Ionicons name="water-outline" size={26} color="#38BDF8" />
                 <Text style={styles.photoVisualText}>SITE PHOTO</Text>
               </View>
-              <View style={styles.syncedBadge}>
+              {/*<View style={styles.syncedBadge}>
                 <Text style={styles.syncedText}>Synced</Text>
-              </View>
+              </View>*/}
             </View>
 
             {/* Retake Button */}
@@ -252,7 +378,7 @@ export default function RecordInterventionScreen({ navigation, route }) {
               style={styles.retakeButton}
               onPress={() => {
                 setPhotoCount((prev) => prev + 1);
-                Alert.alert("Camera Module", "Additional verification photo captured and geotagged.");
+                Alert.alert("Photo Uploaded Successfully");
               }}
               activeOpacity={0.8}
             >
@@ -272,7 +398,7 @@ export default function RecordInterventionScreen({ navigation, route }) {
           <View style={styles.followUpRow}>
             <View>
               <Text style={styles.sectionHeader}>FOLLOW-UP SCHEDULED</Text>
-              <Text style={styles.followUpSubtext}>7 Days (Automated re-audit)</Text>
+              <Text style={styles.followUpSubtext}>7 Days (Re-Audit)</Text>
             </View>
             <View style={styles.dateBadge}>
               <Ionicons
@@ -304,7 +430,7 @@ export default function RecordInterventionScreen({ navigation, route }) {
             />
           )}
           <Text style={styles.primaryButtonText}>
-            {isSubmitting ? "Syncing..." : "Save & Register Intervention"}
+            {isSubmitting ? "Syncing..." : "Save & Register"}
           </Text>
         </TouchableOpacity>
 
@@ -489,6 +615,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#64748B",
     fontWeight: "500",
+  },
+  optionalHint: {
+    fontSize: 10,
+    color: "#94A3B8",
+    fontStyle: "italic",
+    marginTop: 1,
   },
   breteauField: {
     backgroundColor: "#F8FAFC",

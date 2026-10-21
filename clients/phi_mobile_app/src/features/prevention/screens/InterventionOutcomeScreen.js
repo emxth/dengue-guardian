@@ -9,80 +9,169 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import axios from "axios";
 import { preventionApi } from "../../../shared/api/preventionApi";
 import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
+// Express Backend API Base URL for MongoDB communication
+const API_BASE_URL = "http://172.20.10.4:5000/api";
+
 export default function InterventionOutcomeScreen({ navigation, route }) {
   const {
-    protocol = "Source Reduction",
-    actionTaken = "Conducted breeding site clearance at designated premises.",
-    breteauIndex = 5.0,
-    initialFoci = 28,
-    finalFoci = 12,
-    initialBreteau = 45.0,
+    protocol,
+    actionTaken,
+    breteauIndex,
+    initialFoci,
+    finalFoci,
+    initialBreteau,
+    clearedSites,
     savedRecord,
     aiData,
   } = route.params || {};
 
-  const [recentInterventions, setRecentInterventions] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [mongoRecord, setMongoRecord] = useState(savedRecord || null);
   const [outcomeData, setOutcomeData] = useState(null);
-  const [submittingOutcome, setSubmittingOutcome] = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchHistory();
-    syncFollowUpToBackend();
+    fetchRecordAndOutcome();
   }, []);
 
-  const syncFollowUpToBackend = async () => {
-    setSubmittingOutcome(true);
+  const fetchRecordAndOutcome = async () => {
+    setLoading(true);
     try {
-      const interventionId = savedRecord?._id || "latest";
+      // 1. Fetch live intervention records from MongoDB via API base URL
+      let currentRecord = savedRecord || null;
+      try {
+        const historyRes = await axios.get(`${API_BASE_URL}/interventions`, { timeout: 8000 });
+        const records = historyRes.data?.data || [];
+        if (records.length > 0) {
+          if (savedRecord?._id) {
+            currentRecord = records.find((r) => r._id === savedRecord._id) || records[0];
+          } else {
+            currentRecord = records[0]; // Latest recorded intervention from MongoDB
+          }
+        }
+      } catch (fetchErr) {
+        console.warn("Could not load MongoDB record list:", fetchErr.message);
+      }
+
+      setMongoRecord(currentRecord);
+
+      // 2. Perform Day-7 follow-up calculation against MongoDB record
+      const recordId = currentRecord?._id || savedRecord?._id || "latest";
+
+      // Baseline Initial Foci before intervention (from route params or MongoDB document)
+      const recordInitialFoci = (initialFoci !== undefined && !isNaN(Number(initialFoci)) && Number(initialFoci) > 0)
+        ? Number(initialFoci)
+        : Number(currentRecord?.environmentalContext?.breedingSites ?? currentRecord?.breeding_sites_count ?? 0);
+
+      // Breeding Nodes Neutralized by PHI (from route params)
+      const neutralizedCount = (clearedSites !== undefined && !isNaN(Number(clearedSites)) && Number(clearedSites) >= 0)
+        ? Number(clearedSites)
+        : 0;
+
+      // Post Foci remaining = Initial - Neutralized
+      const safePostFoci = (finalFoci !== undefined && finalFoci !== null && !isNaN(Number(finalFoci)))
+        ? Math.max(0, Number(finalFoci))
+        : Math.max(0, recordInitialFoci - neutralizedCount);
+
+      const recordInitialBreteau = (initialBreteau !== undefined && !isNaN(Number(initialBreteau)) && Number(initialBreteau) > 0)
+        ? Number(initialBreteau)
+        : Number(currentRecord?.environmentalContext?.mosquitoDensity ?? currentRecord?.mosquito_density ?? 0);
+
+      const safePostBreteau = (breteauIndex !== undefined && breteauIndex !== null && !isNaN(parseFloat(breteauIndex)))
+        ? parseFloat(breteauIndex)
+        : (currentRecord?.followUp?.postBreteauIndex !== undefined ? Number(currentRecord.followUp.postBreteauIndex) : null);
+
       const payload = {
-        postBreedingFoci: finalFoci,
-        postBreteauIndex: breteauIndex,
+        postBreedingFoci: safePostFoci,
+        postBreteauIndex: safePostBreteau,
       };
-      const response = await preventionApi.submitFollowUp(interventionId, payload);
-      if (response?.data) {
-        setOutcomeData(response.data);
+
+      const followUpRes = await axios.post(`${API_BASE_URL}/interventions/${recordId}/follow-up`, payload, {
+        timeout: 10000,
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (followUpRes.data?.data) {
+        setOutcomeData(followUpRes.data.data);
       }
     } catch (err) {
-      console.warn("Could not submit follow-up to backend:", err.message);
+      console.warn("Could not compute follow-up outcome on backend:", err.message);
     } finally {
-      setSubmittingOutcome(false);
+      setLoading(false);
     }
   };
 
-  const fetchHistory = async () => {
-    setLoadingHistory(true);
-    try {
-      const response = await preventionApi.getInterventions();
-      if (response?.data) {
-        setRecentInterventions(response.data.slice(0, 3));
-      }
-    } catch (err) {
-      console.warn("Could not load past interventions history:", err.message);
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
+  // Values received directly from the Node.js Express backend & MongoDB
+  const activeProtocol = outcomeData?.protocol || mongoRecord?.tier1MacroStrategy || protocol || "Source Reduction";
+  const activeOfficer = mongoRecord?.phiId || "PHI01";
+  const activeZone = mongoRecord?.zoneId || "LOC004";
+  const activeNotes = mongoRecord?.notes || actionTaken || "Conducted field intervention at designated premises; cleared standing water nodes.";
 
-  // Values received directly from the Node.js Express backend calculation
-  const fociDropPct = outcomeData?.fociDropPercentage ?? 0;
-  const outcomeRating = outcomeData?.outcomeRating ?? "Evaluating...";
-  const dynamicScore = outcomeData?.score ?? 0;
-  const isExcellent = outcomeData ? outcomeData.isExcellent : false;
-  const isSafe = outcomeData ? outcomeData.isSafe : parseFloat(breteauIndex) <= 10;
-  const displayPostBreteau = outcomeData?.postBreteauIndex ?? parseFloat(breteauIndex) ?? 5.0;
-  const displayInitialBreteau = outcomeData?.initialBreteau ?? parseFloat(initialBreteau) ?? 45.0;
-  const displayInitialFoci = outcomeData?.initialFoci ?? initialFoci ?? 28;
-  const displayPostFoci = outcomeData?.postBreedingFoci ?? finalFoci ?? 12;
+  // Foci display values: Initial down to Post sites
+  // 1. Initial Foci:
+  const displayInitialFoci = (initialFoci !== undefined && !isNaN(Number(initialFoci)) && Number(initialFoci) > 0)
+    ? Number(initialFoci)
+    : (outcomeData?.initialFoci !== undefined && Number(outcomeData.initialFoci) > 0)
+      ? Number(outcomeData.initialFoci)
+      : Number(mongoRecord?.environmentalContext?.breedingSites ?? mongoRecord?.breeding_sites_count ?? 0);
+
+  // 2. Post Foci:
+  const displayPostFoci = (finalFoci !== undefined && finalFoci !== null && !isNaN(Number(finalFoci)))
+    ? Number(finalFoci)
+    : (clearedSites !== undefined && !isNaN(Number(clearedSites)))
+      ? Math.max(0, displayInitialFoci - Number(clearedSites))
+      : (outcomeData?.postBreedingFoci !== undefined && !isNaN(Number(outcomeData.postBreedingFoci)))
+        ? Number(outcomeData.postBreedingFoci)
+        : Math.max(0, displayInitialFoci);
+
+  // Exact public health formula: fociDropPercentage = ((Initial - Post) / Initial) * 100
+  const calculatedDrop = displayInitialFoci > 0
+    ? Math.round(Math.max(0, ((displayInitialFoci - displayPostFoci) / displayInitialFoci) * 100) * 10) / 10
+    : 0;
+
+  // Use backend calculated percentage if available, otherwise dynamically calculated percentage
+  const fociDropPct = (outcomeData?.fociDropPercentage !== undefined && outcomeData.fociDropPercentage >= 0)
+    ? outcomeData.fociDropPercentage
+    : calculatedDrop;
+
+  const hasPostBreteau = (outcomeData?.postBreteauIndex !== undefined && outcomeData?.postBreteauIndex !== null) ||
+    (breteauIndex !== undefined && breteauIndex !== null && !isNaN(parseFloat(breteauIndex)));
+
+  const displayPostBreteau = outcomeData?.postBreteauIndex ?? (hasPostBreteau ? parseFloat(breteauIndex) : null);
+
+  const displayInitialBreteau = outcomeData?.initialBreteau ??
+    (initialBreteau !== undefined && !isNaN(parseFloat(initialBreteau))
+      ? parseFloat(initialBreteau)
+      : (mongoRecord?.environmentalContext?.mosquitoDensity ? Number(mongoRecord.environmentalContext.mosquitoDensity) : null));
+
+  const isSafe = displayPostBreteau !== null ? displayPostBreteau <= 10 : true;
+
+  let outcomeRating = outcomeData?.outcomeRating;
+  if (!outcomeRating || outcomeRating === "Evaluating...") {
+    if (fociDropPct >= 70 && (displayPostBreteau === null || displayPostBreteau <= 15)) {
+      outcomeRating = "Excellent";
+    } else if (fociDropPct >= 50) {
+      outcomeRating = "Good";
+    } else if (fociDropPct >= 30) {
+      outcomeRating = "Moderate";
+    } else {
+      outcomeRating = "Needs Review";
+    }
+  }
+
+  const isExcellent = outcomeRating === "Excellent";
+  const dynamicScore = outcomeData?.score !== undefined
+    ? outcomeData.score
+    : Math.min(98, Math.max(40, Math.round(fociDropPct * 0.65 + (displayPostBreteau !== null ? (displayPostBreteau <= 5 ? 35 : displayPostBreteau <= 15 ? 20 : 10) : 30))));
 
   const handleSubmitToAdaptiveLearning = () => {
     navigation.navigate("AdaptiveLearning", {
-      protocol,
-      breteauIndex: displayPostBreteau,
+      protocol: activeProtocol,
+      breteauIndex: displayPostBreteau ?? 5.0,
       fociDropPct,
       dynamicScore,
       aiData,
@@ -114,15 +203,15 @@ export default function InterventionOutcomeScreen({ navigation, route }) {
             style={{ marginRight: 8 }}
           />
           <Text style={styles.topInfoText}>
-            Logged to MongoDB: {protocol} by PHI01
+            Logged to MongoDB: {activeProtocol} by {activeOfficer} • {activeZone}
           </Text>
         </View>
 
-        {submittingOutcome ? (
+        {loading ? (
           <View style={[styles.card, { paddingVertical: 20, alignItems: "center" }]}>
             <ActivityIndicator size="small" color="#0D9488" style={{ marginBottom: 8 }} />
             <Text style={{ fontSize: 13, color: "#64748B", fontWeight: "600" }}>
-              Computing Day-7 Follow-up Metrics on Backend...
+              Computing Day-7 Follow-up Metrics on Backend (MongoDB)...
             </Text>
           </View>
         ) : (
@@ -153,17 +242,25 @@ export default function InterventionOutcomeScreen({ navigation, route }) {
                   <Text style={styles.metricTitle}>BRETEAU INDEX</Text>
                   <Ionicons name="trending-down-outline" size={16} color="#0F172A" />
                 </View>
-                <Text style={styles.bigStatDark}>{displayPostBreteau.toFixed(1)}</Text>
-                <Text style={styles.metricSubtext}>Down from {displayInitialBreteau.toFixed(1)}</Text>
-                <View style={[styles.safeBadge, !isSafe && { backgroundColor: "#FEE2E2" }]}>
+                <Text style={styles.bigStatDark}>
+                  {displayPostBreteau !== null
+                    ? (typeof displayPostBreteau === "number" ? displayPostBreteau.toFixed(1) : displayPostBreteau)
+                    : "Pending"}
+                </Text>
+                <Text style={styles.metricSubtext}>
+                  {displayPostBreteau !== null
+                    ? `Down from ${displayInitialBreteau !== null ? (typeof displayInitialBreteau === "number" ? displayInitialBreteau.toFixed(1) : displayInitialBreteau) : "baseline"}`
+                    : `Baseline: ${displayInitialBreteau !== null ? (typeof displayInitialBreteau === "number" ? displayInitialBreteau.toFixed(1) : displayInitialBreteau) : "N/A"}`}
+                </Text>
+                <View style={[styles.safeBadge, displayPostBreteau === null ? { backgroundColor: "#F1F5F9" } : (!isSafe && { backgroundColor: "#FEE2E2" })]}>
                   <Ionicons
-                    name={isSafe ? "checkmark" : "alert-circle-outline"}
+                    name={displayPostBreteau === null ? "time-outline" : (isSafe ? "checkmark" : "alert-circle-outline")}
                     size={12}
-                    color={isSafe ? "#0284C7" : "#DC2626"}
+                    color={displayPostBreteau === null ? "#475569" : (isSafe ? "#0284C7" : "#DC2626")}
                     style={{ marginRight: 4 }}
                   />
-                  <Text style={[styles.safeBadgeText, !isSafe && { color: "#B91C1C" }]}>
-                    {isSafe ? "Safe Level" : "Elevated Risk"}
+                  <Text style={[styles.safeBadgeText, displayPostBreteau === null ? { color: "#475569" } : (!isSafe && { color: "#B91C1C" })]}>
+                    {displayPostBreteau === null ? "Day 7 Re-Audit" : (isSafe ? "Safe Level" : "Elevated Risk")}
                   </Text>
                 </View>
               </View>
@@ -181,18 +278,15 @@ export default function InterventionOutcomeScreen({ navigation, route }) {
                 <Text style={styles.sectionHeader}>FIELD OBSERVATION</Text>
               </View>
               <Text style={styles.observationQuote}>
-                “{actionTaken || "Perimeter tyres removed; remaining water drained."}”
+                “{activeNotes}”
               </Text>
             </View>
 
             {/* Outcome Rating Card (directly from backend evaluation) */}
             <View style={styles.ratingCard}>
               <View style={styles.ratingLeft}>
-                <View style={styles.sparkleBox}>
-                  <Ionicons name="sparkles" size={18} color="#0284C7" />
-                </View>
                 <View>
-                  <Text style={styles.ratingSmallLabel}>BACKEND OUTCOME RATING</Text>
+                  <Text style={styles.ratingSmallLabel}> OUTCOME RATING</Text>
                   <Text style={styles.ratingLargeText}>Rating: {outcomeRating}</Text>
                 </View>
               </View>
@@ -200,37 +294,19 @@ export default function InterventionOutcomeScreen({ navigation, route }) {
                 <Text style={styles.scoreBadgeText}>Score {dynamicScore}/100</Text>
               </View>
             </View>
+
+            {/* MongoDB Record Verification Card */}
+            {mongoRecord && (
+              <View style={styles.verifiedCard}>
+                <Ionicons name="shield-checkmark" size={15} color="#0D9488" style={{ marginRight: 6 }} />
+                <Text style={styles.verifiedText}>
+                  MongoDB Doc: {mongoRecord._id ? `${mongoRecord._id.slice(-8)}` : "Verified"} • Status: {mongoRecord.status || "Completed"}
+                </Text>
+              </View>
+            )}
           </>
         )}
 
-        {/* Real MongoDB Interventions History */}
-        <View style={styles.card}>
-          <View style={styles.cardHeaderRow}>
-            <Ionicons name="file-tray-full-outline" size={16} color="#0F172A" style={{ marginRight: 6 }} />
-            <Text style={styles.sectionHeader}>ZONE INTERVENTION LOGS (MONGODB)</Text>
-          </View>
-          {loadingHistory ? (
-            <ActivityIndicator size="small" color="#0D9488" style={{ marginVertical: 8 }} />
-          ) : recentInterventions.length > 0 ? (
-            recentInterventions.map((item, idx) => (
-              <View key={item._id || idx} style={styles.historyItem}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.historyTitle}>
-                    {item.tier1MacroStrategy} {item.tier2MicroStrategy && item.tier2MicroStrategy !== "None" ? `(${item.tier2MicroStrategy})` : ""}
-                  </Text>
-                  <Text style={styles.historyDate}>
-                    {new Date(item.dateApplied).toLocaleDateString()} • {item.phiId || "PHI-OFFICER"}
-                  </Text>
-                </View>
-                <View style={styles.historyBadge}>
-                  <Text style={styles.historyBadgeText}>Score {item.effectivenessScore || 80}</Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.historySub}>Record successfully persisted in operational database.</Text>
-          )}
-        </View>
 
         {/* Submit to Adaptive Learning Primary Button */}
         <TouchableOpacity
@@ -510,5 +586,21 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontStyle: "italic",
     marginTop: 4,
+  },
+  verifiedCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "#99F6E4",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 16,
+  },
+  verifiedText: {
+    fontSize: 11,
+    color: "#0F766E",
+    fontWeight: "700",
   },
 });

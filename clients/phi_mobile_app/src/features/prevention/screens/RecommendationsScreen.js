@@ -9,25 +9,30 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import axios from "axios";
 import { preventionApi } from "../../../shared/api/preventionApi";
 import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
+// Express Backend API Base URL for MongoDB & ML service communication
+const API_BASE_URL = "http://172.20.10.4:5000/api";
+
+const DEFAULT_ZONE_CONTEXT = {
+  temperature: 29.5,
+  rainfall: 85.0,
+  cumulative_rainfall_14_days: 120.0,
+  mosquito_density: 45.0,
+  breeding_sites_count: 28,
+  wind_speed: 10.0,
+};
+
 export default function RecommendationsScreen({ navigation }) {
   const [aiData, setAiData] = useState(null);
+  const [latestRecord, setLatestRecord] = useState(null);
+  const [zoneContext, setZoneContext] = useState(DEFAULT_ZONE_CONTEXT);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
   const [selectedStrategyId, setSelectedStrategyId] = useState("");
-
-  // Live telemetry context for PHI's current GPS zone
-  const zoneContext = {
-    temperature: 29.5,
-    rainfall: 85.0,
-    cumulative_rainfall_14_days: 120.0,
-    mosquito_density: 45.0,
-    breeding_sites_count: 28,
-    wind_speed: 10.0,
-  };
 
   useEffect(() => {
     fetchRecommendations();
@@ -37,7 +42,42 @@ export default function RecommendationsScreen({ navigation }) {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const data = await preventionApi.getRecommendations(zoneContext);
+      // 1. Fetch real field records from Backend (MongoDB) using API base URL
+      let currentContext = { ...DEFAULT_ZONE_CONTEXT };
+
+      try {
+        const historyRes = await axios.get(`${API_BASE_URL}/interventions`, { timeout: 8000 });
+        const records = historyRes.data?.data || [];
+        if (records.length > 0) {
+          const latest = records[0];
+          setLatestRecord(latest);
+
+          if (latest.environmentalContext) {
+            currentContext = {
+              temperature: Number(latest.environmentalContext.temperature ?? DEFAULT_ZONE_CONTEXT.temperature),
+              rainfall: Number(latest.environmentalContext.rainfall ?? DEFAULT_ZONE_CONTEXT.rainfall),
+              cumulative_rainfall_14_days: Number(
+                latest.environmentalContext.cumulativeRainfall14Days ?? DEFAULT_ZONE_CONTEXT.cumulative_rainfall_14_days
+              ),
+              mosquito_density: Number(
+                latest.environmentalContext.mosquitoDensity ?? DEFAULT_ZONE_CONTEXT.mosquito_density
+              ),
+              breeding_sites_count: Number(
+                latest.environmentalContext.breedingSites ?? DEFAULT_ZONE_CONTEXT.breeding_sites_count
+              ),
+              wind_speed: Number(latest.environmentalContext.windSpeed ?? DEFAULT_ZONE_CONTEXT.wind_speed),
+            };
+          }
+        }
+      } catch (historyErr) {
+        console.warn("Could not load MongoDB history, falling back to default context:", historyErr.message);
+      }
+
+      setZoneContext(currentContext);
+
+      // 2. Fetch AI Recommendations from ML Engine via Express backend using API base URL
+      const recRes = await axios.post(`${API_BASE_URL}/recommendations`, currentContext, { timeout: 10000 });
+      const data = recRes.data?.data;
       setAiData(data);
       if (data?.top_recommendation?.tier_1_macro) {
         setSelectedStrategyId(data.top_recommendation.tier_1_macro);
@@ -45,7 +85,7 @@ export default function RecommendationsScreen({ navigation }) {
     } catch (error) {
       console.error("Error fetching live AI strategy:", error.message);
       setErrorMsg(
-        "Could not connect to Express backend (http://172.20.10.4:5000/api). Check Wi-Fi connection."
+        `Could not connect to Express backend (${API_BASE_URL}). Check Wi-Fi connection.`
       );
     } finally {
       setIsLoading(false);
@@ -59,6 +99,7 @@ export default function RecommendationsScreen({ navigation }) {
       selectedStrategy: stratName,
       strategyDetails: strategyItem,
       zoneContext,
+      latestRecord,
     });
   };
 
@@ -111,10 +152,14 @@ export default function RecommendationsScreen({ navigation }) {
               </View>
               <View style={styles.areaTextContainer}>
                 <Text style={styles.areaMainText}>
-                  Thalangama North A (LOC004)
+                  {latestRecord?.zoneId
+                    ? `Zone: ${latestRecord.zoneId}`
+                    : "Thalangama North A (LOC004)"}
                 </Text>
                 <Text style={styles.areaSubText}>
-                  Malabe Range • MOH Kaduwela
+                  {latestRecord?.phiId
+                    ? `Officer: ${latestRecord.phiId} • MOH Kaduwela`
+                    : "Malabe Range • MOH Kaduwela"}
                 </Text>
               </View>
             </View>
@@ -177,7 +222,7 @@ export default function RecommendationsScreen({ navigation }) {
             const stratTitle = `${rankNum}. ${strat.macro_strategy}`;
             const microDetail =
               strat.micro_strategy && strat.micro_strategy !== "None"
-                ? `Protocol: ${strat.micro_strategy}`
+                ? `Action: ${strat.micro_strategy}`
                 : isTopRank && aiData.top_recommendation?.application_method
                   ? aiData.top_recommendation.application_method
                   : "Manual Physical Action";
@@ -250,7 +295,7 @@ export default function RecommendationsScreen({ navigation }) {
                       style={{ marginRight: 8 }}
                     />
                     <Text style={styles.primaryButtonText}>
-                      Accept & Implement
+                      Accept
                     </Text>
                   </TouchableOpacity>
                 ) : (
@@ -630,5 +675,75 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: DengueGuardianColors.primary,
+  },
+  syncedRecordCard: {
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "#99F6E4",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  syncedRecordHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  syncedHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  syncedRecordTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#0F766E",
+    letterSpacing: 0.5,
+  },
+  liveIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#CCFBF1",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#0D9488",
+    marginRight: 4,
+  },
+  liveText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#0F766E",
+  },
+  syncedRecordBody: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  syncedStrategyText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  syncedMetaText: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  syncedScoreBadge: {
+    backgroundColor: "#0D9488",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  syncedScoreText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 });

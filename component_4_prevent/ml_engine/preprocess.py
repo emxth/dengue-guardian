@@ -49,5 +49,5 @@ def load_and_preprocess_data(filepath):
     return X_train_processed, X_test_processed, y_train, y_test
 
 if __name__ == "__main__":
-    X_train, X_test, y_train, y_test = load_and_preprocess_data('../data/synthetic/phi_intervention_benchmark.csv')
+    X_train, X_test, y_train, y_test = load_and_preprocess_data('../data/benchmark/phi_intervention_benchmark.csv')
     print(f"Preprocessing complete. Training shape: {X_train.shape}")

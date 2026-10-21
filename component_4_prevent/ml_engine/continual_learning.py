@@ -5,7 +5,7 @@ import sqlite3
 import os
 
 DB_NAME = "interventions.db"
-BENCHMARK_CSV = os.path.join(os.path.dirname(__file__), "../data/synthetic/phi_intervention_benchmark.csv")
+BENCHMARK_CSV = os.path.join(os.path.dirname(__file__), "../data/benchmark/phi_intervention_benchmark.csv")
 
 # ─── Schema ────────────────────────────────────────────────────────────────────
 # Standardised on ONE table: intervention_outcomes
