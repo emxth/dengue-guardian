@@ -42,9 +42,9 @@ export default function PriorityTable({
                         <th className="p-3">{categoryHeader}</th>
                         <th className="p-3">Priority</th>
                         <th className="p-3">Score</th>
+                        <th className="p-3">C2 Risk</th>
                         <th className="p-3">Location</th>
                         <th className="p-3">Date</th>
-                        <th className="p-3">Reason / Details</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-borderLight">
@@ -89,10 +89,22 @@ export default function PriorityTable({
                                 </td>
 
                                 {/* Score */}
-                                <td className="p-3 font-semibold text-darkBase whitespace-nowrap">
+                                <td
+                                    className="p-3 font-semibold text-darkBase whitespace-nowrap"
+                                    title={row.data_quality_status === "review" ? row.priority_reason : undefined}
+                                >
                                     {row.priority_score != null
                                         ? Number(row.priority_score).toFixed(1)
                                         : "—"}
+                                </td>
+
+                                <td
+                                    className="p-3 text-xs text-textMuted whitespace-nowrap"
+                                    title={row.component2_score_source ?? "Component 2 source unavailable"}
+                                >
+                                    {typeof row.component2_risk_score === "number"
+                                        ? row.component2_risk_score.toFixed(3)
+                                        : "Unavailable"}
                                 </td>
 
                                 {/* Location: [Verified location name] (LOC007) */}
@@ -119,12 +131,6 @@ export default function PriorityTable({
                                     {dateVal}
                                 </td>
 
-                                {/* Reason / details */}
-                                <td className="p-3 text-textMuted max-w-xs text-xs">
-                                    <span className="line-clamp-2">
-                                        {row.priority_reason ?? "—"}
-                                    </span>
-                                </td>
                             </tr>
                         );
                     })}

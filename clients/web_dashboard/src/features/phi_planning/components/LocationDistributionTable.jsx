@@ -15,6 +15,7 @@ import { MapPin, Filter, ArrowUpDown, ChevronDown, ChevronUp, X } from "lucide-r
  */
 export default function LocationDistributionTable({
     tasks = [],
+    locationSummary = null,
     selectedLocation = "all",
     onSelectLocation,
     totalLoadedTasks = 0,
@@ -25,6 +26,21 @@ export default function LocationDistributionTable({
 
     // Group tasks by location
     const locationStats = useMemo(() => {
+        if (locationSummary) {
+            const rows = locationSummary.map((item) => ({
+                ...item,
+                location_label: item.location_label || "Synthetic Point",
+                phi_range: item.phi_range || "",
+            }));
+            rows.sort((a, b) => {
+                let diff = 0;
+                if (sortBy === "high") diff = b.high - a.high || b.total - a.total;
+                else if (sortBy === "total") diff = b.total - a.total || b.high - a.high;
+                else if (sortBy === "name") diff = a.location_name.localeCompare(b.location_name);
+                return sortAsc ? -diff : diff;
+            });
+            return rows;
+        }
         const map = new Map();
 
         for (const task of tasks) {
@@ -42,6 +58,7 @@ export default function LocationDistributionTable({
                     high: 0,
                     medium: 0,
                     low: 0,
+                    review: 0,
                     total: 0,
                 });
             }
@@ -54,6 +71,8 @@ export default function LocationDistributionTable({
                 item.medium += 1;
             } else if (task.priority_level === "Low") {
                 item.low += 1;
+            } else {
+                item.review += 1;
             }
         }
 
@@ -73,7 +92,7 @@ export default function LocationDistributionTable({
         });
 
         return list;
-    }, [tasks, sortBy, sortAsc]);
+    }, [tasks, locationSummary, sortBy, sortAsc]);
 
     const handleSort = (field) => {
         if (sortBy === field) {
@@ -84,7 +103,7 @@ export default function LocationDistributionTable({
         }
     };
 
-    if (tasks.length === 0) {
+    if (tasks.length === 0 && !locationSummary?.length) {
         return null;
     }
 
@@ -154,6 +173,7 @@ export default function LocationDistributionTable({
                             </th>
                             <th className="p-3 text-center text-riskMedium">Medium</th>
                             <th className="p-3 text-center text-riskCleared">Low</th>
+                            <th className="p-3 text-center">Review</th>
                             <th className="p-3 text-center">
                                 <button
                                     type="button"
@@ -174,6 +194,7 @@ export default function LocationDistributionTable({
                             const highPct = loc.total ? (loc.high / loc.total) * 100 : 0;
                             const medPct = loc.total ? (loc.medium / loc.total) * 100 : 0;
                             const lowPct = loc.total ? (loc.low / loc.total) * 100 : 0;
+                            const reviewPct = loc.total ? (loc.review / loc.total) * 100 : 0;
 
                             return (
                                 <tr
@@ -228,6 +249,14 @@ export default function LocationDistributionTable({
                                         </span>
                                     </td>
 
+                                    <td className="p-3 text-center">
+                                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${
+                                            loc.review > 0 ? "bg-borderLight text-textMuted font-black" : "text-textMuted/50"
+                                        }`}>
+                                            {loc.review}
+                                        </span>
+                                    </td>
+
                                     {/* Total Count */}
                                     <td className="p-3 text-center font-bold text-darkBase">
                                         {loc.total}
@@ -255,6 +284,13 @@ export default function LocationDistributionTable({
                                                     style={{ width: `${lowPct}%` }}
                                                     className="bg-riskCleared h-full"
                                                     title={`Low: ${loc.low} (${lowPct.toFixed(0)}%)`}
+                                                />
+                                            )}
+                                            {reviewPct > 0 && (
+                                                <div
+                                                    style={{ width: `${reviewPct}%` }}
+                                                    className="bg-textMuted/40 h-full"
+                                                    title={`Review: ${loc.review} (${reviewPct.toFixed(0)}%)`}
                                                 />
                                             )}
                                         </div>

@@ -7,6 +7,7 @@ export default function PriorityBadge({ level }) {
         High: "bg-red-50 border border-riskHigh text-riskHigh",
         Medium: "bg-amber-50 border border-riskMedium text-riskMedium",
         Low: "bg-mintSurface border border-riskCleared text-riskCleared",
+        Review: "bg-background border border-borderLight text-textMuted",
     };
 
     const label = level ?? "Unknown";

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
     RefreshCw,
     CalendarDays,
@@ -11,6 +11,7 @@ import {
     Search,
     X,
     PlusCircle,
+    BarChart3,
 } from "lucide-react";
 
 import {
@@ -25,24 +26,22 @@ import PlanningSummaryCards from "../components/PlanningSummaryCards";
 import PrioritySummaryCards from "../components/PrioritySummaryCards";
 import LocationDistributionTable from "../components/LocationDistributionTable";
 import NewInspectionTaskForm from "../components/NewInspectionTaskForm";
+import MonthlyDengueTrends from "../components/MonthlyDengueTrends";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_DATE = "2026-04-01";
+const DEFAULT_DATE = "2026-07-01";
+const DEFAULT_PRIORITY_DATE = "2026-09-30";
+const DEFAULT_TASK_DATE_FROM = "2026-04-01";
+const DEFAULT_TASK_DATE_TO = "2026-09-30";
 const PRIORITY_LIMIT_OPTIONS = [25, 50, 100, 200];
-
-// Known PHI identifiers from the synthetic dataset (PHI_Daily table).
-// The user can also type any PHI ID manually.
-const KNOWN_PHI_IDS = [
-    "PHI01", "PHI02", "PHI03", "PHI04", "PHI05",
-    "PHI06", "PHI07", "PHI08", "PHI09", "PHI10",
-];
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
 const TABS = [
     { id: "overview", label: "Overview", icon: Info },
     { id: "priorities", label: "Inspection Priorities", icon: ClipboardList },
+    { id: "trends", label: "Dengue Trends", icon: BarChart3 },
     { id: "schedule", label: "PHI Scheduling", icon: CalendarDays },
     { id: "reschedule", label: "Adaptive Rescheduling", icon: RotateCcw },
     { id: "new-task", label: "New Inspection Task", icon: PlusCircle },
@@ -54,10 +53,14 @@ export default function PhiPlanningDashboard() {
     const [activeTab, setActiveTab] = useState("overview");
 
     // ── Priorities state ──────────────────────────────────────────────────────
-    const [priorityLimit, setPriorityLimit] = useState(100);
+    const [priorityLimit, setPriorityLimit] = useState(50);
+    const [priorityDate, setPriorityDate] = useState(DEFAULT_PRIORITY_DATE);
+    const [taskDateFrom, setTaskDateFrom] = useState(DEFAULT_TASK_DATE_FROM);
+    const [taskDateTo, setTaskDateTo] = useState(DEFAULT_TASK_DATE_TO);
     const [priorities, setPriorities] = useState(null);
     const [priorityLoading, setPriorityLoading] = useState(false);
     const [priorityError, setPriorityError] = useState(null);
+    const priorityRequestRef = useRef({ id: 0, key: null, promise: null });
 
     // ── Schedule state ────────────────────────────────────────────────────────
     const [scheduleDate, setScheduleDate] = useState(DEFAULT_DATE);
@@ -68,8 +71,8 @@ export default function PhiPlanningDashboard() {
 
     // ── Reschedule state ──────────────────────────────────────────────────────
     const [rescheduleDate, setRescheduleDate] = useState(DEFAULT_DATE);
-    const [unavailablePhi, setUnavailablePhi] = useState("PHI02");
-    const [assumeAllPending, setAssumeAllPending] = useState(true);
+    const [unavailablePhi, setUnavailablePhi] = useState("");
+    const [assumeAllPending, setAssumeAllPending] = useState(false);
     const [rescheduleResult, setRescheduleResult] = useState(null);
     const [rescheduleLoading, setRescheduleLoading] = useState(false);
     const [rescheduleError, setRescheduleError] = useState(null);
@@ -77,21 +80,55 @@ export default function PhiPlanningDashboard() {
 
     // ─── Handlers ─────────────────────────────────────────────────────────────
 
-    const handleLoadPriorities = useCallback(async () => {
-        if (priorityLoading) return;
+    const handleLoadPriorities = useCallback((query = {}) => {
+        const params = {
+            limit: query.limit ?? priorityLimit,
+            offset: query.offset ?? 0,
+            planningDate: query.planningDate ?? priorityDate,
+            dateFrom: query.dateFrom ?? taskDateFrom,
+            dateTo: query.dateTo ?? taskDateTo,
+            task_type: query.task_type ?? "all",
+            priority_level: query.priority_level ?? "all",
+            location_id: query.location_id ?? "",
+            search: query.search ?? "",
+        };
+        const key = JSON.stringify(params);
+        if (priorityRequestRef.current.key === key && priorityRequestRef.current.promise) {
+            return priorityRequestRef.current.promise;
+        }
+        const requestId = priorityRequestRef.current.id + 1;
+        priorityRequestRef.current = { id: requestId, key, promise: null };
         setPriorityLoading(true);
         setPriorityError(null);
-        try {
-            const data = await fetchPriorities(priorityLimit);
-            setPriorities(data);
-        } catch (err) {
-            setPriorityError(err.message);
-        } finally {
-            setPriorityLoading(false);
-        }
-    }, [priorityLoading, priorityLimit]);
+        const promise = fetchPriorities(
+            params.limit,
+            params.planningDate,
+            params.dateFrom,
+            params.dateTo,
+            params.offset,
+            params,
+        )
+            .then((data) => {
+                if (priorityRequestRef.current.id === requestId) setPriorities(data);
+            })
+            .catch((err) => {
+                if (priorityRequestRef.current.id === requestId) setPriorityError(err.message);
+            })
+            .finally(() => {
+                if (priorityRequestRef.current.id === requestId) {
+                    setPriorityLoading(false);
+                    priorityRequestRef.current.promise = null;
+                }
+            });
+        priorityRequestRef.current.promise = promise;
+        return promise;
+    }, [priorityLimit, priorityDate, taskDateFrom, taskDateTo]);
 
-    const handleInspectionTaskCreated = useCallback(async () => {
+    const handleInspectionTaskCreated = useCallback(async (createdTask) => {
+        if (createdTask?.planning_date) {
+            setPriorityDate(createdTask.planning_date);
+            setScheduleDate(createdTask.planning_date);
+        }
         setScheduleResult(null);
         setOriginalSchedulePlan(null);
         setRescheduleResult(null);
@@ -99,14 +136,21 @@ export default function PhiPlanningDashboard() {
         setPriorityError(null);
         setPriorityLoading(true);
         try {
-            const data = await fetchPriorities(priorityLimit);
+            const data = await fetchPriorities(
+                priorityLimit,
+                createdTask?.planning_date ?? priorityDate,
+                taskDateFrom,
+                taskDateTo,
+                0,
+                {task_type: "all", priority_level: "all", location_id: "", search: ""},
+            );
             setPriorities(data);
         } catch (err) {
             setPriorityError(err.message);
         } finally {
             setPriorityLoading(false);
         }
-    }, [priorityLimit]);
+    }, [priorityLimit, priorityDate, taskDateFrom, taskDateTo]);
 
     const handleGenerateSchedule = useCallback(async () => {
         if (scheduleLoading) return;
@@ -117,6 +161,13 @@ export default function PhiPlanningDashboard() {
             setScheduleResult(data);
             if (data?.tasks) {
                 setOriginalSchedulePlan(data.tasks);
+                setRescheduleDate(data.planning_date);
+                const assignedPhis = [...new Set(
+                    data.tasks
+                        .map((task) => task.assigned_phi?.trim())
+                        .filter(Boolean)
+                )];
+                setUnavailablePhi(assignedPhis[0] ?? "");
             }
         } catch (err) {
             setScheduleError(err.message);
@@ -159,19 +210,17 @@ export default function PhiPlanningDashboard() {
                         PHI Inspection Planning & Operations
                     </h3>
                     <p className="text-sm text-textMuted mt-0.5">
-                        Intelligent inspection task prioritization, officer scheduling, and adaptive resource management.
+                        Research prototype using synthetic data and provisional priorities. Production Component 2 output compatibility is not confirmed.
                     </p>
                 </div>
                 <span className="bg-surface text-primary border border-primary px-3.5 py-1.5 rounded-full text-xs font-bold">
-                    Kaduwela MOH Division
+                    Development Data
                 </span>
             </div>
-
             {/* Tab Navigation */}
             <div className="flex flex-wrap gap-1.5 border-b border-borderLight pb-0">
                 {TABS.map(({ id, label, icon: Icon }) => (
                     <button
-                        key={id}
                         id={`tab-${id}`}
                         onClick={() => setActiveTab(id)}
                         className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-sm font-bold transition border-b-2 -mb-px ${activeTab === id
@@ -207,9 +256,21 @@ export default function PhiPlanningDashboard() {
                     error={priorityError}
                     limit={priorityLimit}
                     onLimitChange={setPriorityLimit}
+                    planningDate={priorityDate}
+                    onPlanningDateChange={(nextDate) => {
+                        setPriorityDate(nextDate);
+                    }}
+                    dateFrom={taskDateFrom}
+                    dateTo={taskDateTo}
+                    onDateRangeChange={(nextFrom, nextTo) => {
+                        setTaskDateFrom(nextFrom);
+                        setTaskDateTo(nextTo);
+                    }}
                     onLoad={handleLoadPriorities}
                 />
             )}
+
+            {activeTab === "trends" && <MonthlyDengueTrends />}
 
             {/* ── Tab: Schedule ─────────────────────────────────────────────── */}
             {activeTab === "schedule" && (
@@ -220,6 +281,7 @@ export default function PhiPlanningDashboard() {
                         setScheduleResult(null);
                         setOriginalSchedulePlan(null);
                         setRescheduleResult(null);
+                        setUnavailablePhi("");
                     }}
                     result={scheduleResult}
                     loading={scheduleLoading}
@@ -232,7 +294,6 @@ export default function PhiPlanningDashboard() {
             {activeTab === "reschedule" && (
                 <RescheduleTab
                     date={rescheduleDate}
-                    onDateChange={setRescheduleDate}
                     unavailablePhi={unavailablePhi}
                     onPhiChange={setUnavailablePhi}
                     assumeAllPending={assumeAllPending}
@@ -249,7 +310,10 @@ export default function PhiPlanningDashboard() {
                     onRequestConfirm={() => setShowConfirm(true)}
                     onConfirm={handleRescheduleConfirmed}
                     onCancelConfirm={() => setShowConfirm(false)}
-                    scheduleExists={!!scheduleResult || !!rescheduleResult}
+                    scheduleExists={
+                        scheduleResult?.planning_date === rescheduleDate ||
+                        rescheduleResult?.planning_date === rescheduleDate
+                    }
                 />
             )}
 
@@ -388,98 +452,69 @@ function OverviewTab({ scheduleResult, priorities, onLoadPriorities, onGenerateS
 
 // ── Priorities Tab ────────────────────────────────────────────────────────────
 
-function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoad }) {
-    // Filter states
-    const [categoryFilter, setCategoryFilter] = useState("all"); // "all" | "cases" | "complaints"
-    const [priorityFilter, setPriorityFilter] = useState("all"); // "all" | "High" | "Medium" | "Low"
-    const [locationFilter, setLocationFilter] = useState("all"); // "all" | location_id
+function PrioritiesTab({
+    priorities,
+    loading,
+    error,
+    limit,
+    onLimitChange,
+    planningDate,
+    onPlanningDateChange,
+    dateFrom,
+    dateTo,
+    onDateRangeChange,
+    onLoad,
+}) {
+    const [categoryFilter, setCategoryFilter] = useState("all");
+    const [priorityFilter, setPriorityFilter] = useState("all");
+    const [locationFilter, setLocationFilter] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
+    const [pageIndex, setPageIndex] = useState(0);
 
-    // Extracted raw datasets
-    const rawCases = useMemo(() => priorities?.cases ?? [], [priorities]);
-    const rawComplaints = useMemo(() => priorities?.complaints ?? [], [priorities]);
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            onLoad({
+                limit,
+                offset: pageIndex * limit,
+                planningDate,
+                dateFrom,
+                dateTo,
+                task_type: categoryFilter,
+                priority_level: priorityFilter,
+                location_id: locationFilter,
+                search: searchQuery.trim(),
+            });
+        }, searchQuery ? 250 : 0);
+        return () => clearTimeout(timer);
+    }, [
+        onLoad,
+        limit,
+        pageIndex,
+        planningDate,
+        dateFrom,
+        dateTo,
+        categoryFilter,
+        priorityFilter,
+        locationFilter,
+        searchQuery,
+    ]);
 
-    // Current category tasks (before priority/location/search filtering)
-    const categoryTasks = useMemo(() => {
-        if (!priorities) return [];
-        if (categoryFilter === "cases") return rawCases;
-        if (categoryFilter === "complaints") return rawComplaints;
-        // "all": combine and sort by provisional priority score descending
-        return [...rawCases, ...rawComplaints].sort(
-            (a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0)
-        );
-    }, [priorities, categoryFilter, rawCases, rawComplaints]);
-
-    // Priority summary counts for currently loaded category dataset
-    const { highCount, mediumCount, lowCount, totalLoadedCount } = useMemo(() => {
-        let high = 0;
-        let medium = 0;
-        let low = 0;
-        for (const t of categoryTasks) {
-            if (t.priority_level === "High") high++;
-            else if (t.priority_level === "Medium") medium++;
-            else if (t.priority_level === "Low") low++;
-        }
-        return {
-            highCount: high,
-            mediumCount: medium,
-            lowCount: low,
-            totalLoadedCount: categoryTasks.length,
-        };
-    }, [categoryTasks]);
-
-    // Distinct locations from category tasks
-    const availableLocations = useMemo(() => {
-        const map = new Map();
-        for (const t of categoryTasks) {
-            const locId = t.location_id;
-            if (locId && !map.has(locId)) {
-                map.set(locId, {
-                    location_id: locId,
-                    location_name: t.location_name || "Name unavailable",
-                    location_label: t.location_label || "Synthetic Point",
-                });
-            }
-        }
-        return Array.from(map.values()).sort((a, b) =>
-            a.location_name.localeCompare(b.location_name)
-        );
-    }, [categoryTasks]);
-
-    // Filtered tasks for the table
-    const filteredTasks = useMemo(() => {
-        return categoryTasks.filter((task) => {
-            // Priority filter
-            if (priorityFilter !== "all" && task.priority_level !== priorityFilter) {
-                return false;
-            }
-
-            // Location filter
-            if (locationFilter !== "all" && task.location_id !== locationFilter) {
-                return false;
-            }
-
-            // Search query filter
-            if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase().trim();
-                const matchId = String(task.task_id || "").toLowerCase().includes(q);
-                const matchLocId = String(task.location_id || "").toLowerCase().includes(q);
-                const matchLocName = String(task.location_name || "").toLowerCase().includes(q);
-                const matchLocLabel = String(task.location_label || "").toLowerCase().includes(q);
-                const matchReason = String(task.priority_reason || "").toLowerCase().includes(q);
-                const matchType = String(task.task_type || "").toLowerCase().includes(q);
-                const matchComplaintType = String(task.complaint_type || "").toLowerCase().includes(q);
-
-                if (!matchId && !matchLocId && !matchLocName && !matchLocLabel && !matchReason && !matchType && !matchComplaintType) {
-                    return false;
-                }
-            }
-
-            return true;
-        });
-    }, [categoryTasks, priorityFilter, locationFilter, searchQuery]);
+    const pageRows = priorities?.tasks ?? [];
+    const summary = priorities?.summary ?? {};
+    const locationOptions = Object.values(priorities?.locations ?? {}).sort(
+        (first, second) => first.location_name.localeCompare(second.location_name)
+    );
+    const totalMatching = priorities?.total_matching ?? 0;
+    const totalPages = Math.max(1, Math.ceil(totalMatching / limit));
+    const currentPage = Math.min(pageIndex + 1, totalPages);
+    const highCount = summary.high ?? 0;
+    const mediumCount = summary.medium ?? 0;
+    const lowCount = summary.low ?? 0;
+    const reviewCount = summary.review ?? 0;
+    const totalLoadedCount = summary.total ?? 0;
 
     const handleSelectPriorityFromCard = (level) => {
+        setPageIndex(0);
         if (level === "all") {
             setPriorityFilter("all");
         } else {
@@ -489,18 +524,21 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
     };
 
     const handleSelectLocation = (locId) => {
-        setLocationFilter(locId);
+        setLocationFilter(locId === "all" ? "" : locId);
+        setPageIndex(0);
     };
 
     const handleResetFilters = () => {
         setPriorityFilter("all");
-        setLocationFilter("all");
+        setLocationFilter("");
         setSearchQuery("");
+        setPageIndex(0);
     };
 
     const hasActiveFilters =
+        categoryFilter !== "all" ||
         priorityFilter !== "all" ||
-        locationFilter !== "all" ||
+        Boolean(locationFilter) ||
         searchQuery.trim() !== "";
 
     return (
@@ -509,21 +547,77 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
             <div className="bg-surface rounded-xl border border-borderLight shadow-xs p-5 flex flex-wrap gap-4 items-end justify-between">
                 <div className="flex flex-wrap items-end gap-3">
                     <div>
+                        <label htmlFor="task-date-from" className="block text-xs font-bold text-textMuted mb-1.5 uppercase">
+                            Task date from
+                        </label>
+                        <input
+                            id="task-date-from"
+                            type="date"
+                            value={dateFrom}
+                            max={dateTo || undefined}
+                            onChange={(event) => {
+                                setPageIndex(0);
+                                onDateRangeChange(event.target.value, dateTo);
+                            }}
+                            className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="task-date-to" className="block text-xs font-bold text-textMuted mb-1.5 uppercase">
+                            Task date through
+                        </label>
+                        <input
+                            id="task-date-to"
+                            type="date"
+                            value={dateTo}
+                            min={dateFrom || undefined}
+                            max="2026-09-30"
+                            onChange={(event) => {
+                                setPageIndex(0);
+                                onDateRangeChange(dateFrom, event.target.value);
+                            }}
+                            className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            htmlFor="priority-planning-date"
+                            className="block text-xs font-bold text-textMuted mb-1.5 uppercase"
+                        >
+                            Score as of (data through 2026-09-30)
+                        </label>
+                        <input
+                            id="priority-planning-date"
+                            type="date"
+                            value={planningDate}
+                            max="2026-09-30"
+                            onChange={(event) => {
+                                setPageIndex(0);
+                                onPlanningDateChange(event.target.value);
+                            }}
+                            required
+                            className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        />
+                    </div>
+                    <div>
                         <label
                             htmlFor="priority-limit"
                             className="block text-xs font-bold text-textMuted mb-1.5 uppercase"
                         >
-                            Records per category
+                            Matching records
                         </label>
                         <select
                             id="priority-limit"
                             value={limit}
-                            onChange={(e) => onLimitChange(Number(e.target.value))}
+                            onChange={(e) => {
+                                setPageIndex(0);
+                                onLimitChange(Number(e.target.value));
+                            }}
                             className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40 font-semibold"
                         >
                             {PRIORITY_LIMIT_OPTIONS.map((n) => (
                                 <option key={n} value={n}>
-                                    {n} records
+                                    {`${n} per page`}
                                 </option>
                             ))}
                         </select>
@@ -531,7 +625,17 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
 
                     <button
                         id="btn-load-priorities"
-                        onClick={onLoad}
+                        onClick={() => onLoad({
+                            limit,
+                            offset: pageIndex * limit,
+                            planningDate,
+                            dateFrom,
+                            dateTo,
+                            task_type: categoryFilter,
+                            priority_level: priorityFilter,
+                            location_id: locationFilter,
+                            search: searchQuery.trim(),
+                        })}
                         disabled={loading}
                         className="bg-primary hover:bg-secondary disabled:opacity-60 disabled:cursor-not-allowed text-surface px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition"
                     >
@@ -551,7 +655,7 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                 {priorities && (
                     <div className="text-xs text-textMuted text-right">
                         <span className="font-semibold text-darkBase">
-                            {priorities.total_cases?.toLocaleString()} registered cases • {priorities.total_complaints?.toLocaleString()} complaints
+                            {priorities.total_cases?.toLocaleString()} cases • {priorities.total_complaints?.toLocaleString()} complaints in selected range
                         </span>
                         <div className="text-[11px] text-textMuted">
                             Kaduwela MOH Surveillance Area
@@ -561,7 +665,41 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
             </div>
 
             {/* Error banner */}
-            {error && <ApiError message={error} />}
+            {loading && priorities && (
+                <div className="flex items-center gap-2 rounded-lg border border-borderLight bg-background px-4 py-2 text-xs text-textMuted" role="status">
+                    <Loader2 size={14} className="animate-spin text-primary" />
+                    Loading priorities… Previous results remain visible.
+                </div>
+            )}
+            {error && (
+                <div className="flex items-center gap-3">
+                    <div className="flex-1"><ApiError message={error} /></div>
+                    <button
+                        type="button"
+                        onClick={() => onLoad({
+                            limit,
+                            offset: pageIndex * limit,
+                            planningDate,
+                            dateFrom,
+                            dateTo,
+                            task_type: categoryFilter,
+                            priority_level: priorityFilter,
+                            location_id: locationFilter,
+                            search: searchQuery.trim(),
+                        })}
+                        disabled={loading}
+                        className="rounded-lg border border-borderLight px-3 py-2 text-xs font-bold text-primary disabled:opacity-50"
+                    >
+                        Retry
+                    </button>
+                </div>
+            )}
+            {!priorities && loading && (
+                <div className="py-12 text-center text-sm text-textMuted" role="status">
+                    <Loader2 size={22} className="mx-auto mb-2 animate-spin text-primary" />
+                    Loading priorities…
+                </div>
+            )}
 
             {/* When data is loaded */}
             {priorities && (
@@ -571,6 +709,7 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                         highCount={highCount}
                         mediumCount={mediumCount}
                         lowCount={lowCount}
+                        reviewCount={reviewCount}
                         totalCount={totalLoadedCount}
                         activePriority={priorityFilter}
                         onSelectPriority={handleSelectPriorityFromCard}
@@ -581,7 +720,7 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
 
                     {/* 2. Location-Based Summary */}
                     <LocationDistributionTable
-                        tasks={categoryTasks}
+                        locationSummary={priorities.location_summary ?? []}
                         selectedLocation={locationFilter}
                         onSelectLocation={handleSelectLocation}
                         totalLoadedTasks={totalLoadedCount}
@@ -596,8 +735,9 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                                 <button
                                     type="button"
                                     onClick={() => {
+                                        setPageIndex(0);
                                         setCategoryFilter("all");
-                                        setLocationFilter("all");
+                                        setLocationFilter("");
                                     }}
                                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${categoryFilter === "all"
                                         ? "bg-surface text-primary shadow-xs border border-borderLight"
@@ -606,15 +746,16 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                                 >
                                     <span>All Tasks</span>
                                     <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-primary/10 text-primary">
-                                        {rawCases.length + rawComplaints.length}
+                                        {priorities.total_cases + priorities.total_complaints}
                                     </span>
                                 </button>
 
                                 <button
                                     type="button"
                                     onClick={() => {
+                                        setPageIndex(0);
                                         setCategoryFilter("cases");
-                                        setLocationFilter("all");
+                                        setLocationFilter("");
                                     }}
                                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${categoryFilter === "cases"
                                         ? "bg-surface text-primary shadow-xs border border-borderLight"
@@ -623,15 +764,16 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                                 >
                                     <span>Dengue Cases</span>
                                     <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-700">
-                                        {rawCases.length}
+                                        {priorities.total_cases}
                                     </span>
                                 </button>
 
                                 <button
                                     type="button"
                                     onClick={() => {
+                                        setPageIndex(0);
                                         setCategoryFilter("complaints");
-                                        setLocationFilter("all");
+                                        setLocationFilter("");
                                     }}
                                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${categoryFilter === "complaints"
                                         ? "bg-surface text-primary shadow-xs border border-borderLight"
@@ -640,7 +782,7 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                                 >
                                     <span>Citizen Complaints</span>
                                     <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-100 text-purple-700">
-                                        {rawComplaints.length}
+                                        {priorities.total_complaints}
                                     </span>
                                 </button>
                             </div>
@@ -654,14 +796,20 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                                     id="search-tasks"
                                     type="text"
                                     value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onChange={(e) => {
+                                        setPageIndex(0);
+                                        setSearchQuery(e.target.value);
+                                    }}
                                     placeholder="Search task ID, location, reason..."
                                     className="w-full pl-9 pr-8 py-2 text-xs border border-borderLight rounded-xl bg-background text-darkBase placeholder:text-textMuted/70 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:bg-surface transition"
                                 />
                                 {searchQuery && (
                                     <button
                                         type="button"
-                                        onClick={() => setSearchQuery("")}
+                                        onClick={() => {
+                                            setPageIndex(0);
+                                            setSearchQuery("");
+                                        }}
                                         className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-textMuted hover:text-darkBase cursor-pointer"
                                         title="Clear search"
                                     >
@@ -685,13 +833,17 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                                     <select
                                         id="priority-select"
                                         value={priorityFilter}
-                                        onChange={(e) => setPriorityFilter(e.target.value)}
+                                        onChange={(e) => {
+                                            setPageIndex(0);
+                                            setPriorityFilter(e.target.value);
+                                        }}
                                         className="border border-borderLight rounded-lg px-2.5 py-1.5 text-xs text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40 font-semibold"
                                     >
                                         <option value="all">All Priorities ({totalLoadedCount})</option>
                                         <option value="High">High Priority ({highCount})</option>
                                         <option value="Medium">Medium Priority ({mediumCount})</option>
                                         <option value="Low">Low Priority ({lowCount})</option>
+                                        <option value="Review">Review ({reviewCount})</option>
                                     </select>
                                 </div>
 
@@ -705,14 +857,17 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                                     </label>
                                     <select
                                         id="location-select"
-                                        value={locationFilter}
-                                        onChange={(e) => setLocationFilter(e.target.value)}
+                                        value={locationFilter || "all"}
+                                        onChange={(e) => {
+                                            setPageIndex(0);
+                                            setLocationFilter(e.target.value === "all" ? "" : e.target.value);
+                                        }}
                                         className="border border-borderLight rounded-lg px-2.5 py-1.5 text-xs text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40 max-w-xs font-semibold"
                                     >
                                         <option value="all">
-                                            All Locations ({availableLocations.length})
+                                            All Locations ({locationOptions.length})
                                         </option>
-                                        {availableLocations.map((loc) => (
+                                        {locationOptions.map((loc) => (
                                             <option key={loc.location_id} value={loc.location_id}>
                                                 {loc.location_name} ({loc.location_id})
                                             </option>
@@ -734,7 +889,7 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
 
                             {/* Result counts */}
                             <div className="text-textMuted font-medium">
-                                Showing <strong>{filteredTasks.length}</strong> of <strong>{totalLoadedCount}</strong> tasks
+                                Showing <strong>{priorities.page_start}-{priorities.page_end}</strong> of <strong>{totalMatching}</strong> tasks
                                 {hasActiveFilters && (
                                     <span className="text-[11px] text-textMuted/80 italic ml-1.5">
                                         (filtered)
@@ -747,7 +902,7 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                     {/* 4. Priority Tasks Table */}
                     <div className="bg-surface rounded-xl border border-borderLight shadow-xs overflow-hidden">
                         <PriorityTable
-                            rows={filteredTasks}
+                            rows={pageRows}
                             taskType={categoryFilter}
                             emptyLabel={
                                 hasActiveFilters
@@ -755,6 +910,29 @@ function PrioritiesTab({ priorities, loading, error, limit, onLimitChange, onLoa
                                     : "No tasks were returned by the API."
                             }
                         />
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-borderLight px-2 pt-4 text-sm">
+                        <p className="text-textMuted">
+                            Page <strong className="text-darkBase">{currentPage}</strong> of <strong className="text-darkBase">{totalPages}</strong> · {totalMatching.toLocaleString()} matching tasks
+                        </p>
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setPageIndex((page) => Math.max(0, page - 1))}
+                                disabled={pageIndex === 0 || loading}
+                                className="rounded-lg border border-borderLight px-3 py-2 text-xs font-bold text-darkBase disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                Previous
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setPageIndex((page) => Math.min(totalPages - 1, page + 1))}
+                                disabled={!priorities.has_next || loading}
+                                className="rounded-lg border border-borderLight px-3 py-2 text-xs font-bold text-darkBase disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                Next
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -784,13 +962,12 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate })
                         id="schedule-date"
                         type="date"
                         value={date}
-                        min="2026-04-01"
-                        max="2026-09-30"
                         onChange={(e) => onDateChange(e.target.value)}
+                        required
                         className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
                     <p className="text-xs text-textMuted mt-1">
-                        Date Range: 2026-04-01 → 2026-09-30
+                        Availability is validated by the backend for this date.
                     </p>
                 </div>
 
@@ -834,6 +1011,11 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate })
                         unscheduledTasks={result.unscheduled_tasks}
                         solverStatus={result.solver_status}
                     />
+                    <p className="text-xs text-textMuted">
+                        Synthetic research schedule. Assignments, times, and
+                        unscheduled reasons below are returned by the backend.
+                        This input batch is not a live pending-task queue.
+                    </p>
 
                     {/* Task table */}
                     <div className="bg-surface rounded-xl border border-borderLight shadow-sm overflow-hidden">
@@ -864,7 +1046,6 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate })
 
 function RescheduleTab({
     date,
-    onDateChange,
     unavailablePhi,
     onPhiChange,
     assumeAllPending,
@@ -879,6 +1060,12 @@ function RescheduleTab({
     onCancelConfirm,
     scheduleExists,
 }) {
+    const scheduledPhis = [...new Set(
+        originalTasks
+            .map((task) => task.assigned_phi?.trim())
+            .filter(Boolean)
+    )];
+
     return (
         <div className="space-y-5">
             {/* Prerequisite notice */}
@@ -914,9 +1101,7 @@ function RescheduleTab({
                             id="reschedule-date"
                             type="date"
                             value={date}
-                            min="2026-04-01"
-                            max="2026-09-30"
-                            onChange={(e) => onDateChange(e.target.value)}
+                            readOnly
                             className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
                         />
                     </div>
@@ -929,31 +1114,24 @@ function RescheduleTab({
                         >
                             Unavailable PHI
                         </label>
-                        <div className="flex gap-2">
-                            <select
-                                id="unavailable-phi"
-                                value={KNOWN_PHI_IDS.includes(unavailablePhi) ? unavailablePhi : ""}
-                                onChange={(e) => {
-                                    if (e.target.value) onPhiChange(e.target.value);
-                                }}
-                                className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
-                            >
-                                <option value="">Select or type below</option>
-                                {KNOWN_PHI_IDS.map((id) => (
-                                    <option key={id} value={id}>
-                                        {id}
-                                    </option>
-                                ))}
-                            </select>
-                            <input
-                                id="unavailable-phi-manual"
-                                type="text"
-                                placeholder="or type PHI ID"
-                                value={unavailablePhi}
-                                onChange={(e) => onPhiChange(e.target.value)}
-                                className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40 w-32"
-                            />
-                        </div>
+                        <select
+                            id="unavailable-phi"
+                            value={unavailablePhi}
+                            onChange={(e) => onPhiChange(e.target.value)}
+                            disabled={!scheduleExists || scheduledPhis.length === 0}
+                            className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-60"
+                        >
+                            <option value="">
+                                {scheduledPhis.length
+                                    ? "Select an assigned PHI"
+                                    : "Generate a schedule first"}
+                            </option>
+                            {scheduledPhis.map((phi) => (
+                                <option key={phi} value={phi}>
+                                    {phi}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                 </div>
 
@@ -971,10 +1149,10 @@ function RescheduleTab({
                             htmlFor="assume-all-pending"
                             className="text-sm font-bold text-darkBase cursor-pointer"
                         >
-                            Include remaining uncompleted tasks
+                            Assume all tasks are pending
                         </label>
                         <p className="text-xs text-textMuted mt-0.5">
-                            Treats pending tasks as eligible for dynamic redistribution to other available officers.
+                            The API does not accept per-task execution statuses. Enable this only when explicitly assuming every task is pending; otherwise the backend may reject rescheduling because execution status is missing.
                         </p>
                     </div>
                 </div>
@@ -982,7 +1160,11 @@ function RescheduleTab({
                 <button
                     id="btn-request-reschedule"
                     onClick={onRequestConfirm}
-                    disabled={loading || !unavailablePhi.trim()}
+                    disabled={
+                        loading ||
+                        !scheduleExists ||
+                        !scheduledPhis.includes(unavailablePhi)
+                    }
                     className="bg-primary hover:bg-secondary disabled:opacity-60 disabled:cursor-not-allowed text-surface px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition"
                 >
                     {loading ? (

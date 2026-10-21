@@ -7,8 +7,8 @@ import {
 const INITIAL_FORM = {
     task_type: "Dengue Case Inspection",
     location_id: "",
-    planning_date: "2026-04-01",
-    urgency: "Medium",
+    planning_date: "2026-07-01",
+    urgency: "",
     complaint_type: "",
 };
 
@@ -61,15 +61,11 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
     const selectedLocation = locations.find(
         (location) => location.location_id === form.location_id
     );
-    const selectedRisk = selectedLocation?.risk_indicator;
-    const hasSelectedRisk = Number.isFinite(selectedRisk);
-    const selectedRiskLevel = hasSelectedRisk
-        ? selectedRisk >= 0.7
-            ? "High risk"
-            : selectedRisk >= 0.4
-              ? "Medium risk"
-              : "Low risk"
-        : "Not available";
+    const selectedRisk = selectedLocation?.component2_risk_score;
+    const hasSelectedRisk =
+        typeof selectedRisk === "number" && Number.isFinite(selectedRisk);
+    const selectedRiskLevel =
+        selectedLocation?.component2_risk_level ?? "Risk level unavailable";
 
     function handleChange(event) {
         const { name, value } = event.target;
@@ -93,12 +89,8 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
             return;
         }
 
-        if (
-            !form.planning_date ||
-            form.planning_date < "2026-04-01" ||
-            form.planning_date > "2026-09-30"
-        ) {
-            setError("Choose a date between 1 April and 30 September 2026.");
+        if (!form.planning_date) {
+            setError("Choose a planning date.");
             return;
         }
 
@@ -108,23 +100,24 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
             planning_date: form.planning_date,
         };
 
+        if (!form.urgency) {
+            setError("Select task urgency to calculate priority.");
+            return;
+        }
+
+        task.urgency = form.urgency;
+
         if (isCase && !hasSelectedRisk) {
-            setError("No valid synthetic risk data is available for this location.");
+            setError("Component 2 risk is unavailable; the task can be saved only after selecting a valid-risk location.");
             return;
         }
 
         if (!isCase) {
-            if (!form.urgency) {
-                setError("Please select complaint urgency.");
-                return;
-            }
-
             if (!form.complaint_type.trim()) {
                 setError("Please enter the complaint type.");
                 return;
             }
 
-            task.urgency = form.urgency;
             task.complaint_type = form.complaint_type.trim();
         }
 
@@ -157,7 +150,8 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                     Create New Inspection Task
                 </h3>
                 <p className="mt-1 text-sm text-textMuted">
-                    Synthetic research prototype
+                    Synthetic research prototype. Priority uses backend risk, area activity,
+                    waiting time, and explicit task urgency.
                 </p>
             </div>
 
@@ -178,9 +172,13 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                     <p className="font-bold">Inspection task created successfully.</p>
                     <p>Task ID: {success.scenario_task_id}</p>
                     <p>
-                        Priority: {success.priority_level} (
-                        {success.priority_score})
+                        Priority: {success.priority_level} ({success.priority_score})
                     </p>
+                    {success.priority_reason && (
+                        <p className="text-xs text-textMuted">
+                            {success.priority_reason}
+                        </p>
+                    )}
                     <p className="text-xs text-textMuted">
                         The task is saved as Pending. Generate a schedule for{" "}
                         {success.planning_date} to include it in the planning run.
@@ -218,8 +216,6 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                             id="new-task-date"
                             name="planning_date"
                             type="date"
-                            min="2026-04-01"
-                            max="2026-09-30"
                             value={form.planning_date}
                             onChange={handleChange}
                             required
@@ -269,14 +265,14 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                                 htmlFor="new-task-risk"
                                 className={LABEL_CLASS}
                             >
-                                Automatically Retrieved Risk Indicator
+                                Component 2 Location Risk Score
                             </label>
                             <input
                                 id="new-task-risk"
                                 type="text"
                                 value={
                                     hasSelectedRisk
-                                        ? selectedRisk.toFixed(2)
+                                        ? selectedRisk.toFixed(3)
                                         : form.location_id
                                           ? "Not available"
                                           : "Select a location"
@@ -284,25 +280,33 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                                 readOnly
                                 className={FIELD_CLASS}
                             />
-                            <p
-                                className={`mt-1 text-sm font-semibold ${
-                                    selectedRiskLevel === "High risk"
-                                        ? "text-riskHigh"
-                                        : selectedRiskLevel === "Medium risk"
-                                          ? "text-riskMedium"
-                                          : selectedRiskLevel === "Low risk"
-                                            ? "text-riskCleared"
-                                            : "text-textMuted"
-                                }`}
-                                aria-live="polite"
-                            >
-                                {selectedRiskLevel}
+                            <p className="mt-1 text-sm font-semibold text-textMuted" aria-live="polite">
+                                Component 2 level: {selectedRiskLevel}
                             </p>
                             <p className="mt-1 text-xs text-textMuted">
-                                Illustrative value only, retrieved from synthetic
-                                location data. The risk indicator is read-only;
-                                the system calculates the priority score.
+                                Development dataset context only. The backend
+                                calculates the priority. Production Component 2
+                                output compatibility has not been confirmed.
                             </p>
+                            <label
+                                htmlFor="new-task-case-urgency"
+                                className={`${LABEL_CLASS} mt-4`}
+                            >
+                                Case Urgency
+                            </label>
+                            <select
+                                id="new-task-case-urgency"
+                                name="urgency"
+                                value={form.urgency}
+                                onChange={handleChange}
+                                required
+                                className={FIELD_CLASS}
+                            >
+                                <option value="">Select urgency</option>
+                                <option value="High">High</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Low">Low</option>
+                            </select>
                             {form.location_id && !hasSelectedRisk && (
                                 <p className="mt-1 text-xs text-riskHigh" role="alert">
                                     No valid synthetic risk data is available for
@@ -327,6 +331,7 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                                     required
                                     className={FIELD_CLASS}
                                 >
+                                    <option value="">Select urgency</option>
                                     <option value="High">High</option>
                                     <option value="Medium">Medium</option>
                                     <option value="Low">Low</option>

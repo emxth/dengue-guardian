@@ -1,4 +1,4 @@
-import { AlertCircle, AlertTriangle, CheckCircle2, Layers } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Layers, CircleHelp } from "lucide-react";
 
 /**
  * PrioritySummaryCards
@@ -13,6 +13,7 @@ export default function PrioritySummaryCards({
     highCount = 0,
     mediumCount = 0,
     lowCount = 0,
+    reviewCount = 0,
     totalCount = 0,
     activePriority = "all",
     onSelectPriority,
@@ -56,6 +57,18 @@ export default function PrioritySummaryCards({
             pillCls: "bg-emerald-100 text-riskCleared border border-emerald-300",
         },
         {
+            id: "Review",
+            label: "Tasks Requiring Review",
+            shortLabel: "Review",
+            count: reviewCount,
+            subtext: "Missing or invalid scoring input",
+            icon: CircleHelp,
+            colorCls: "text-textMuted",
+            bgCls: "bg-background border-borderLight hover:border-textMuted/50",
+            activeBorder: "ring-2 ring-textMuted border-transparent",
+            pillCls: "bg-background text-textMuted border border-borderLight",
+        },
+        {
             id: "all",
             label: "Total Tasks",
             shortLabel: "Total Tasks",
@@ -77,7 +90,7 @@ export default function PrioritySummaryCards({
     return (
         <div className="space-y-2.5">
             {/* Cards Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 {cards.map((c) => {
                     const Icon = c.icon;
                     const isSelected = activePriority === c.id;

@@ -45,7 +45,7 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
 
     // Filter tasks based on PHI, priority, and search query
     const filteredTasks = useMemo(() => {
-        return tasks.filter((task) => {
+        const matchingTasks = tasks.filter((task) => {
             // PHI Filter
             if (selectedPhi !== "all") {
                 if (selectedPhi === "Unassigned") {
@@ -74,6 +74,11 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
             }
 
             return true;
+        });
+        return matchingTasks.sort((first, second) => {
+            const firstTime = first.start_time || "99:99";
+            const secondTime = second.start_time || "99:99";
+            return firstTime.localeCompare(secondTime);
         });
     }, [tasks, selectedPhi, priorityFilter, searchQuery]);
 
@@ -313,6 +318,7 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
                 <table className="w-full text-left border-collapse text-sm">
                     <thead className="bg-background border-b border-borderLight text-xs font-bold uppercase text-textMuted">
                         <tr>
+                            <th className="p-3">Order</th>
                             <th className="p-3">Task ID</th>
                             <th className="p-3">Type</th>
                             <th className="p-3">Priority</th>
@@ -326,7 +332,7 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
                     <tbody className="divide-y divide-borderLight">
                         {filteredTasks.length === 0 ? (
                             <tr>
-                                <td colSpan={8} className="py-12 text-center text-sm text-textMuted">
+                                <td colSpan={9} className="py-12 text-center text-sm text-textMuted">
                                     <AlertCircle size={24} className="mx-auto mb-2 text-textMuted/50" />
                                     <p className="font-semibold text-darkBase">No tasks match the active filters</p>
                                     <p className="text-xs text-textMuted mt-1">
@@ -352,6 +358,9 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
                                             : "hover:bg-background/60"
                                     }`}
                                 >
+                                    <td className="p-3 text-xs font-mono text-textMuted">
+                                        {task.start_time ? idx + 1 : "—"}
+                                    </td>
                                     <td className="p-3 font-bold text-primary whitespace-nowrap text-xs font-mono">
                                         {task.scenario_task_id ?? task.source_id ?? "—"}
                                     </td>

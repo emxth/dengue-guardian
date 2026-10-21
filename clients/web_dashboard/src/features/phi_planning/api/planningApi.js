@@ -78,9 +78,61 @@ export async function checkHealth() {
  *
  * @param {number} [limit=100] - Number of records to retrieve (1-1000).
  */
-export async function fetchPriorities(limit = 100) {
-    const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit))));
-    return apiFetch(`/api/v1/planning/priorities?limit=${safeLimit}`);
+export async function fetchPriorities(
+    limit = 50,
+    planningDate,
+    dateFrom,
+    dateTo,
+    offset = 0,
+    filters = {},
+) {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit))));
+    const safeOffset = Math.max(0, Math.floor(Number(offset)));
+    const query = new URLSearchParams({
+        limit: String(safeLimit),
+        offset: String(safeOffset),
+    });
+    for (const [name, value] of [
+        ["planning_date", planningDate],
+        ["date_from", dateFrom],
+        ["date_to", dateTo],
+    ]) {
+        if (value) {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                throw new Error(`${name} must be in YYYY-MM-DD format.`);
+            }
+            query.set(name, value);
+        }
+    }
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+        throw new Error("Start date must be on or before end date.");
+    }
+    for (const key of ["task_type", "priority_level", "location_id", "search"]) {
+        if (filters[key]) query.set(key, filters[key]);
+    }
+    return apiFetch(`/api/v1/planning/priorities?${query.toString()}`);
+}
+
+/**
+ * GET /api/v1/planning/analytics/monthly
+ * Fetch actual monthly record counts and coverage metadata for one location.
+ */
+export async function fetchMonthlyDengueAnalytics(locationId, year, metric = "cases") {
+    if (!locationId || typeof locationId !== "string") {
+        throw new Error("Select a location for monthly analytics.");
+    }
+    if (!["cases", "complaints"].includes(metric)) {
+        throw new Error("Select Cases or Citizen Complaints.");
+    }
+    const query = new URLSearchParams({ location_id: locationId, metric });
+    if (year !== undefined && year !== null && year !== "") {
+        const numericYear = Number(year);
+        if (!Number.isInteger(numericYear) || numericYear < 2000 || numericYear > 2100) {
+            throw new Error("Select a valid year.");
+        }
+        query.set("year", String(numericYear));
+    }
+    return apiFetch(`/api/v1/planning/analytics/monthly?${query.toString()}`);
 }
 
 /**
