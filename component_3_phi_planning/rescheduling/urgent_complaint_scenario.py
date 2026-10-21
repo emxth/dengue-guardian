@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "data" / "Kaduwela_C3_Research_Database_V2_SYNTHETIC.sqlite"
+DB_PATH = ROOT / "data" / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
 PLAN_DIR = ROOT / "optimization" / "output"
 OUTPUT_DIR = ROOT / "rescheduling" / "output"
 
@@ -41,6 +41,7 @@ def _daily_details(rows):
             "working_end": row[4],
             "daily_capacity": int(row[5]),
             "existing_workload": int(row[6]),
+            "moh_area": row[7],
         }
         for row in rows
     }
@@ -51,11 +52,12 @@ def read_phi_daily(plan_date):
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             """
-            SELECT phi_id, phi_range, availability, working_start,
-                   working_end, daily_capacity, existing_workload
-            FROM PHI_Daily
-            WHERE date = ?
-            ORDER BY phi_id
+            SELECT d.phi_id, d.phi_range, d.availability, d.working_start,
+                   d.working_end, d.daily_capacity, d.existing_workload, m.moh_area
+            FROM PHI_Daily AS d
+            JOIN PHI_Master AS m ON m.phi_id = d.phi_id
+            WHERE d.date = ?
+            ORDER BY d.phi_id
             """,
             (plan_date,),
         ).fetchall()
@@ -69,11 +71,12 @@ def read_future_phi_daily(start_date):
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             """
-            SELECT date, phi_id, phi_range, availability, working_start,
-                   working_end, daily_capacity, existing_workload
-            FROM PHI_Daily
-            WHERE date >= ?
-            ORDER BY date, phi_id
+            SELECT d.date, d.phi_id, d.phi_range, d.availability, d.working_start,
+                   d.working_end, d.daily_capacity, d.existing_workload, m.moh_area
+            FROM PHI_Daily AS d
+            JOIN PHI_Master AS m ON m.phi_id = d.phi_id
+            WHERE d.date >= ?
+            ORDER BY d.date, d.phi_id
             """,
             (start_date,),
         ).fetchall()
@@ -81,7 +84,7 @@ def read_future_phi_daily(start_date):
         raise ValueError(f"No PHI availability data on or after {start_date}.")
     result = defaultdict(dict)
     for row in rows:
-        date, phi_id, phi_range, availability, start, end, capacity, workload = row
+        date, phi_id, phi_range, availability, start, end, capacity, workload, moh_area = row
         result[date][phi_id] = {
             "phi_range": phi_range,
             "availability": availability,
@@ -89,6 +92,7 @@ def read_future_phi_daily(start_date):
             "working_end": end,
             "daily_capacity": int(capacity),
             "existing_workload": int(workload),
+            "moh_area": moh_area,
         }
     return dict(result)
 
@@ -185,6 +189,10 @@ def _find_slot_across_days(task, plan, daily_by_date, start_date):
             ),
         )
         for phi_id, details in candidates:
+            task_area = task.get("moh_area")
+            phi_area = details.get("moh_area")
+            if task_area and phi_area and str(task_area).strip().casefold() != str(phi_area).strip().casefold():
+                continue
             slot = find_free_slot(phi_id, details, plan, plan_date)
             if slot is not None:
                 return plan_date, phi_id, details, slot

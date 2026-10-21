@@ -22,7 +22,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "data" / "Kaduwela_C3_Research_Database_V2_SYNTHETIC.sqlite"
+DB_PATH = ROOT / "data" / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
 PLAN_DIR = ROOT / "optimization" / "output"
 OUTPUT_DIR = ROOT / "rescheduling" / "output"
 
@@ -52,10 +52,11 @@ def read_phi_daily(plan_date):
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             """
-            SELECT phi_id, availability, working_start, working_end,
-                   daily_capacity, existing_workload
-            FROM PHI_Daily
-            WHERE date = ?
+            SELECT d.phi_id, d.availability, d.working_start, d.working_end,
+                   d.daily_capacity, d.existing_workload, m.moh_area, d.phi_range
+            FROM PHI_Daily AS d
+            JOIN PHI_Master AS m ON m.phi_id = d.phi_id
+            WHERE d.date = ?
             """,
             (plan_date,),
         ).fetchall()
@@ -67,6 +68,8 @@ def read_phi_daily(plan_date):
             "working_end": row[3],
             "daily_capacity": int(row[4]),
             "existing_workload": int(row[5]),
+            "moh_area": row[6],
+            "phi_range": row[7],
         }
         for row in rows
     }
@@ -189,6 +192,11 @@ def reschedule_tasks(
 
         for phi_id in candidates:
             details = phi_daily[phi_id]
+
+            task_area = task.get("moh_area")
+            phi_area = details.get("moh_area")
+            if task_area and phi_area and str(task_area).strip().casefold() != str(phi_area).strip().casefold():
+                continue
 
             capacity_left = (
                 details["daily_capacity"]
