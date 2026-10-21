@@ -1,8 +1,6 @@
 fastapi
 uvicorn
 pydantic
-psycopg2-binary
-sqlalchemy
 python-dotenv
 pandas
 numpy
@@ -14,3 +12,4 @@ shap
 captum
 celery
 redis
+pymongo

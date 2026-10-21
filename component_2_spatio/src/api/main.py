@@ -7,8 +7,7 @@ import pandas as pd
 import torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from pymongo import MongoClient
 
 # --- 1. Path & AI Model Setup ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -17,10 +16,10 @@ import sys
 # Append 'src' so Python can find both 'engine' and 'api' folders
 sys.path.append(os.path.join(BASE_DIR, "src"))
 
-from engine.stgnn_model import AdaptiveSTGNN
 from api.tasks import process_edge_telemetry
+from engine.stgnn_model import AdaptiveSTGNN
 
-# Load Data and Edge Index (For prototype purposes, we read the CSVs to get the graph structure)
+# Load Data and Edge Index
 DATA_DIR = os.path.join(BASE_DIR, "data")
 adj_df = pd.read_csv(os.path.join(DATA_DIR, "adjacency_matrix.csv"), index_col=0)
 wards = list(adj_df.columns)
@@ -33,27 +32,11 @@ model_path = os.path.join(BASE_DIR, "saved_models", "stgnn_base.pt")
 model.load_state_dict(torch.load(model_path, weights_only=True))
 model.eval()
 
-# --- 2. PostgreSQL Database Setup ---
-DB_URL = os.getenv("DATABASE_URL")
-if not DB_URL:
-    raise ValueError(
-        "DATABASE_URL environment variable is missing. Check your .env file."
-    )
-
-engine = create_engine(DB_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-
-class ForecastLog(Base):
-    __tablename__ = "forecast_logs"
-    id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    ward_name = Column(String, index=True)
-    predicted_cases_14d = Column(Float)
-
-
-Base.metadata.create_all(bind=engine)
+# --- 2. MongoDB Setup ---
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client["dengue_guardian"]
+forecast_collection = db["forecast_logs"]
 
 # --- 3. FastAPI Initialization ---
 app = FastAPI(title="Adaptive Spatio-Temporal Dengue Intelligence API", version="1.0.0")
@@ -76,19 +59,19 @@ def get_forecast(ward_id: int):
     if ward_id >= len(wards):
         raise HTTPException(status_code=404, detail="Ward ID not found.")
 
-    # PROTOTYPE: Generate a dummy 8-week tensor for the requested ward to simulate live Component 1 data
     X_live = torch.rand(8, len(wards), 4)
 
     with torch.no_grad():
         # Predict 14-Day Horizon (index 1)
         pred = model(X_live, edge_index)[ward_id, 1].item()
 
-    # Persist to PostgreSQL
-    db = SessionLocal()
-    log = ForecastLog(ward_name=wards[ward_id], predicted_cases_14d=pred)
-    db.add(log)
-    db.commit()
-    db.close()
+    # Persist to MongoDB
+    log_doc = {
+        "timestamp": datetime.utcnow(),
+        "ward_name": wards[ward_id],
+        "predicted_cases_14d": round(pred, 1),
+    }
+    forecast_collection.insert_one(log_doc)
 
     return {
         "ward": wards[ward_id],
