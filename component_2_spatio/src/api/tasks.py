@@ -3,19 +3,18 @@ import os
 from datetime import datetime
 
 from celery import Celery
+from dotenv import load_dotenv
 from pymongo import MongoClient
+
+# 1. Explicitly locate the .env file using the absolute path
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 logger = logging.getLogger(__name__)
 
-# 1. Initialize Celery connecting to Redis
+# 2. Initialize Celery connecting to Redis
 redis_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 celery_app = Celery("dengue_tasks", broker=redis_url, backend=redis_url)
-
-# 2. MongoDB Connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client["dengue_guardian"]
-vector_collection = db["vector_telemetry"]
 
 
 # 3. The Background Task
@@ -25,6 +24,16 @@ def process_edge_telemetry(payload: dict):
     This function runs asynchronously in the Celery worker container.
     It takes the raw JSON payload from Component 1, processes it, and bulk inserts it.
     """
+    # Initialize MongoDB connection INSIDE the task (Thread-safe for Celery workers)
+    MONGO_URI = os.getenv("MONGO_URI")
+    if not MONGO_URI:
+        logger.error("MONGO_URI environment variable is missing.")
+        return {"status": "failed", "error": "MONGO_URI missing"}
+
+    client = MongoClient(MONGO_URI)
+    db = client["dengue_guardian"]
+    vector_collection = db["vector_telemetry"]
+
     try:
         records_to_insert = []
         for record in payload.get("data", []):
@@ -49,3 +58,6 @@ def process_edge_telemetry(payload: dict):
     except Exception as e:
         logger.error(f"Error processing edge telemetry: {e}")
         return {"status": "failed", "error": str(e)}
+    finally:
+        # Close the connection safely when the task finishes
+        client.close()

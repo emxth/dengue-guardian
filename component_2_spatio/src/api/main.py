@@ -5,9 +5,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import torch
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from pymongo import MongoClient
+
+# Load environment variables from the .env file
+load_dotenv()
 
 # --- 1. Path & AI Model Setup ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -24,7 +28,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 adj_df = pd.read_csv(os.path.join(DATA_DIR, "adjacency_matrix.csv"), index_col=0)
 wards = list(adj_df.columns)
 source_nodes, target_nodes = np.where(adj_df.values == 1)
-edge_index = torch.tensor([source_nodes, target_nodes], dtype=torch.long)
+edge_index = torch.tensor(np.array([source_nodes, target_nodes]), dtype=torch.long)
 
 # Load Model Weights
 model = AdaptiveSTGNN(num_node_features=4, hidden_size=64)
