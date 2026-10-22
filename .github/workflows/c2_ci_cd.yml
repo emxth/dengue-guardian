@@ -25,6 +25,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
+    - name: Create Mock .env File
+      working-directory: ./component_2_spatio
+      run: touch .env  # Satisfies the env_file requirement in docker-compose.yml
+        
     - name: Verify Docker Compose Build
       working-directory: ./component_2_spatio
-      run: docker-compose build
+      run: docker compose build 
