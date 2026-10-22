@@ -11,11 +11,14 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from component_3_phi_planning.api import task_store
+from component_3_phi_planning.api import availability_store
+from component_3_phi_planning.api import plan_store
 from component_3_phi_planning.config import DEFAULT_PLANNING_DATE
 from component_3_phi_planning.api.task_store import (
     NewInspectionTask,
     TASK_STORE_PATH,
     load_submitted_tasks,
+    save_task_records,
     save_submitted_task,
 )
 from component_3_phi_planning.prioritization.score_tasks import (
@@ -31,7 +34,9 @@ from component_3_phi_planning.prioritization.activity_analytics import (
 from component_3_phi_planning.optimization.phi_scheduler import (
     load_phis,
     load_tasks,
+    prepare_scheduling_task,
     solve_schedule,
+    task_waiting_days,
 )
 from component_3_phi_planning.rescheduling.phi_rescheduler import (
     read_phi_daily,
@@ -158,7 +163,11 @@ def _make_priority_page(
         locations.values(),
         key=lambda item: (-item["high"], -item["total"], item["location_name"]),
     )
-    page_rows = all_rows[offset:offset + limit]
+    page_rows = [
+        prepare_scheduling_task(task)
+        if task.get("priority_score") is None else task
+        for task in all_rows[offset:offset + limit]
+    ]
     page_cases = [task for task in page_rows if task.get("task_type") != "Citizen Complaint"]
     page_complaints = [task for task in page_rows if task.get("task_type") == "Citizen Complaint"]
     start = offset + 1 if total_matching and offset < total_matching else 0
@@ -216,6 +225,134 @@ class RescheduleRequest(BaseModel):
             "tasks are pending when the schedule lacks execution statuses."
         ),
     )
+
+
+class TaskStatusUpdate(BaseModel):
+    """Execution status update for a persisted planning task."""
+
+    task_status: Literal["Pending", "In Progress", "Completed", "Cancelled"]
+
+
+class PhiAvailabilityUpdate(BaseModel):
+    """Date-scoped user override for one PHI's availability."""
+
+    planning_date: date
+    availability: Literal["Available", "Unavailable"]
+
+
+class ScheduleConfirmationRequest(BaseModel):
+    planning_date: date
+
+
+def _read_phi_availability(planning_date):
+    database_uri = DATABASE_PATH.resolve().as_uri() + "?mode=ro"
+    with sqlite3.connect(database_uri, uri=True) as connection:
+        return availability_store.load_phi_daily_defaults(connection, planning_date)
+
+
+@router.get("/phis/availability")
+def get_phi_availability(planning_date: date = Query(...)):
+    """Return authoritative PHI availability for one date."""
+    if not DATABASE_PATH.is_file():
+        raise HTTPException(
+            status_code=500,
+            detail="Synthetic research database was not found.",
+        )
+    try:
+        phi_daily = _read_phi_availability(planning_date)
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not retrieve PHI availability: {exc}",
+        ) from exc
+
+    return {
+        "data_mode": "synthetic_research_data",
+        "planning_date": planning_date.isoformat(),
+        "availability_scope": "selected planning date only",
+        "phis": list(phi_daily.values()),
+    }
+
+
+@router.put("/phis/{phi_id}/availability")
+def set_phi_availability(phi_id: str, request: PhiAvailabilityUpdate):
+    """Persist an explicit availability state for one PHI and one date."""
+    if not DATABASE_PATH.is_file():
+        raise HTTPException(
+            status_code=500,
+            detail="Synthetic research database was not found.",
+        )
+    try:
+        phi_daily = _read_phi_availability(request.planning_date)
+        if phi_id not in phi_daily:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Unknown Kaduwela PHI '{phi_id}' for "
+                    f"{request.planning_date.isoformat()}."
+                ),
+            )
+        override = availability_store.save_availability_override(
+            phi_id,
+            request.planning_date,
+            request.availability,
+        )
+        updated = _read_phi_availability(request.planning_date)[phi_id]
+        state = plan_store.load_schedule_state(request.planning_date)
+        plan_path = API_OUTPUT_DIR / f"phi_plan_{request.planning_date.isoformat()}.csv"
+        assigned_tasks = []
+        if plan_path.is_file():
+            with plan_path.open("r", newline="", encoding="utf-8-sig") as file:
+                assigned_tasks = [
+                    row for row in csv.DictReader(file)
+                    if row.get("assigned_phi") == phi_id
+                    and row.get("status") == "Scheduled"
+                    and row.get("task_status") == "Pending"
+                ]
+        if request.availability == "Unavailable" and assigned_tasks:
+            required = sorted(set(state.get("required_unavailable_phis", [])) | {phi_id})
+            state = plan_store.save_schedule_state(
+                request.planning_date,
+                {
+                    "status": "rescheduling_required",
+                    "confirmed": False,
+                    "released_to_phis": False,
+                    "rescheduling_required": True,
+                    "rescheduling_processed": False,
+                    "required_unavailable_phis": required,
+                },
+            )
+        elif request.availability == "Available" and phi_id in state.get("required_unavailable_phis", []):
+            remaining = [
+                value for value in state["required_unavailable_phis"]
+                if value != phi_id
+            ]
+            state = plan_store.save_schedule_state(
+                request.planning_date,
+                {
+                    "status": "rescheduling_required" if remaining else "draft",
+                    "confirmed": False,
+                    "released_to_phis": False,
+                    "rescheduling_required": bool(remaining),
+                    "rescheduling_processed": False,
+                    "required_unavailable_phis": remaining,
+                },
+            )
+        return {
+            "message": "PHI availability saved for the selected planning date.",
+            "planning_date": request.planning_date.isoformat(),
+            "availability_scope": "selected planning date only",
+            "override": override,
+            "phi": updated,
+            "schedule_state": state,
+        }
+    except HTTPException:
+        raise
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not save PHI availability: {exc}",
+        ) from exc
 
 
 @router.get("/priorities")
@@ -593,16 +730,14 @@ def create_inspection_task(request: NewInspectionTask):
                     ),
                 )
 
-            availability = connection.execute(
-                "SELECT COUNT(*) FROM PHI_Daily WHERE date = ?",
-                (planning_date,),
-            ).fetchone()[0]
-            if availability == 0:
+            phi_daily = availability_store.load_phi_daily_defaults(
+                connection, request.planning_date
+            )
+            if not phi_daily:
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "No PHI availability data exists for this date. "
-                        "Choose a supported planning date."
+                        "No Kaduwela PHI master records are available for this date."
                     ),
                 )
             activity_data = calculate_location_activity(
@@ -638,10 +773,216 @@ def create_inspection_task(request: NewInspectionTask):
         ) from exc
 
 
+@router.patch("/tasks/{task_id}/status")
+def update_task_execution_status(task_id: str, request: TaskStatusUpdate):
+    """Update execution lifecycle separately from appointment status."""
+    try:
+        records = load_submitted_tasks()
+        task = next((
+            row for row in records
+            if task_id in {
+                row.get("scenario_task_id"),
+                row.get("source_id"),
+            }
+        ), None)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Planning task not found.")
+
+        task["task_status"] = request.task_status
+        _remove_unapproved_deadline_fields(task)
+        if request.task_status in {"Completed", "Cancelled"}:
+            task["status"] = request.task_status
+        elif task.get("status") in {"Completed", "Cancelled"}:
+            task["status"] = "Unscheduled"
+            task["assigned_phi"] = ""
+            task["start_time"] = ""
+            task["end_time"] = ""
+
+        history = list(task.get("execution_history") or [])
+        event = {
+            "task_status": request.task_status,
+            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        }
+        if not history or history[-1].get("task_status") != request.task_status:
+            history.append(event)
+        task["execution_history"] = history
+        save_task_records(records)
+
+        planning_date = task.get("current_planning_date") or task.get("planning_date")
+        if planning_date:
+            plan_path = API_OUTPUT_DIR / f"phi_plan_{planning_date}.csv"
+            if plan_path.is_file():
+                with plan_path.open("r", newline="", encoding="utf-8-sig") as file:
+                    plan = list(csv.DictReader(file))
+                for row in plan:
+                    _remove_unapproved_deadline_fields(row)
+                    if task_id in {row.get("scenario_task_id"), row.get("source_id")}:
+                        row["task_status"] = request.task_status
+                        if request.task_status in {"Completed", "Cancelled"}:
+                            row["status"] = request.task_status
+                _write_plan_snapshot(plan_path, plan)
+
+        return {"message": "Task execution status updated.", "task": task}
+    except HTTPException:
+        raise
+    except (ValueError, OSError, csv.Error) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not update task execution status: {exc}",
+        ) from exc
+
+
+def _write_plan_snapshot(path, plan):
+    fieldnames = list(dict.fromkeys(
+        field for task in plan for field in task
+    )) or ["scenario_task_id", "task_status", "status", "reason"]
+    from io import StringIO
+
+    buffer = StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(plan)
+    contents = buffer.getvalue()
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_file():
+        previous = path.read_text(encoding="utf-8")
+        if previous != contents:
+            version = 1
+            while True:
+                archive = path.with_name(
+                    f"{path.stem}_history_{version}{path.suffix}"
+                )
+                if not archive.exists():
+                    archive.write_text(previous, encoding="utf-8")
+                    break
+                version += 1
+    path.write_text(contents, encoding="utf-8", newline="")
+
+
+def _task_execution_status(task):
+    status = task.get("task_status")
+    if status in {"Pending", "In Progress", "Completed", "Cancelled"}:
+        return status
+    if task.get("record_source") == "user_submitted_synthetic_demo":
+        return "Pending"
+    return "Pending"
+
+
+def _record_history(task, planning_date):
+    raw_history = task.get("schedule_history")
+    history = [row for row in raw_history if isinstance(row, dict)] if isinstance(raw_history, list) else []
+    event = {
+        "planning_date": planning_date,
+        "assigned_phi": task.get("assigned_phi") or "",
+        "start_time": task.get("start_time") or "",
+        "end_time": task.get("end_time") or "",
+        "status": task.get("status") or "Unscheduled",
+        "reason": task.get("reason") or "",
+    }
+    if not history or any(history[-1].get(key) != value for key, value in event.items()):
+        history.append(event)
+    task["schedule_history"] = history
+
+
+def _remove_unapproved_deadline_fields(task):
+    for field in ("deadline_date", "deadline_at_risk", "overdue"):
+        task.pop(field, None)
+
+
+@router.get("/schedule")
+def get_saved_schedule(planning_date: date = Query(...)):
+    """Return the saved plan and its review/confirmation state."""
+    plan_path = API_OUTPUT_DIR / f"phi_plan_{planning_date.isoformat()}.csv"
+    if not plan_path.is_file():
+        raise HTTPException(status_code=404, detail="No schedule exists for this planning date.")
+    try:
+        with plan_path.open("r", newline="", encoding="utf-8-sig") as file:
+            tasks = list(csv.DictReader(file))
+        for row in tasks:
+            _remove_unapproved_deadline_fields(row)
+            row["waiting_days"] = task_waiting_days(row, planning_date)
+        state = plan_store.load_schedule_state(planning_date)
+    except (OSError, csv.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not retrieve the saved schedule: {exc}",
+        ) from exc
+    scheduled = sum(row.get("status") == "Scheduled" for row in tasks)
+    unscheduled = sum(row.get("status") == "Unscheduled" for row in tasks)
+    outstanding_statuses = {"Pending", "In Progress"}
+    is_carried_forward = lambda row: (
+        str(row.get("carried_forward", "")).strip().lower() in ("true", "1")
+        and _task_execution_status(row) in outstanding_statuses
+    )
+    carried_forward = sum(is_carried_forward(row) for row in tasks)
+    new_tasks = sum(
+        _task_execution_status(row) in outstanding_statuses
+        and not is_carried_forward(row)
+        for row in tasks
+    )
+    review_tasks = sum(str(row.get("priority_fallback", "")).strip().lower() in ("true", "1") for row in tasks)
+    return {
+        "data_mode": "synthetic_research_data",
+        "planning_policy": "provisional_research_prototype",
+        "planning_date": planning_date.isoformat(),
+        "solver_status": state.get("solver_status", "SAVED"),
+        "total_tasks": len(tasks),
+        "new_tasks": new_tasks,
+        "scheduled_tasks": scheduled,
+        "unscheduled_tasks": unscheduled,
+        "pending_tasks": sum(
+            _task_execution_status(row) == "Pending"
+            and row.get("status") == "Unscheduled"
+            for row in tasks
+        ),
+        "carried_forward_tasks": carried_forward,
+        "completed_tasks": sum(row.get("status") == "Completed" for row in tasks),
+        "cancelled_tasks": sum(row.get("status") == "Cancelled" for row in tasks),
+        "review_tasks": review_tasks,
+        "schedule_saved": True,
+        "schedule_state": state,
+        "tasks": tasks,
+    }
+
+
+@router.post("/schedule/confirm")
+def confirm_schedule(request: ScheduleConfirmationRequest):
+    """Persist MOH review confirmation; this does not deliver a plan to PHIs."""
+    plan_path = API_OUTPUT_DIR / f"phi_plan_{request.planning_date.isoformat()}.csv"
+    if not plan_path.is_file():
+        raise HTTPException(status_code=404, detail="Generate a schedule before confirming it.")
+
+    state = plan_store.load_schedule_state(request.planning_date)
+    if state.get("rescheduling_required") and not state.get("rescheduling_processed"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Adaptive rescheduling is required for unavailable PHI(s): "
+                + ", ".join(state.get("required_unavailable_phis", []))
+            ),
+        )
+
+    state = plan_store.save_schedule_state(
+        request.planning_date,
+        {
+            "status": "confirmed",
+            "confirmed": True,
+            "confirmed_at": state.get("confirmed_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
+            "released_to_phis": False,
+        },
+    )
+    return {
+        "message": "Schedule confirmed for the selected planning date.",
+        "planning_date": request.planning_date.isoformat(),
+        "schedule_state": state,
+        "delivered_to_phis": False,
+    }
+
+
 @router.post("/schedule")
 def create_schedule(request: ScheduleRequest):
-    """Generate and save a synthetic PHI schedule for API rescheduling."""
-
+    """Generate a daily plan and retain unassigned work for later runs."""
     if not DATABASE_PATH.is_file():
         raise HTTPException(
             status_code=500,
@@ -649,12 +990,26 @@ def create_schedule(request: ScheduleRequest):
         )
 
     planning_date = request.planning_date.isoformat()
+    previous_state = plan_store.load_schedule_state(planning_date)
+    if previous_state.get("rescheduling_required") and not previous_state.get("rescheduling_processed"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Complete adaptive rescheduling before regenerating this date's "
+                "schedule."
+            ),
+        )
+    registry = load_submitted_tasks()
+    registry_by_id = {
+        row.get("scenario_task_id") or row.get("source_id"): row
+        for row in registry
+        if row.get("scenario_task_id") or row.get("source_id")
+    }
 
     try:
-        tasks = load_tasks(planning_date)
-        submitted_tasks = []
-        review_tasks = []
-        with sqlite3.connect(DATABASE_PATH) as connection:
+        source_tasks = load_tasks(planning_date)
+        database_uri = DATABASE_PATH.resolve().as_uri() + "?mode=ro"
+        with sqlite3.connect(database_uri, uri=True) as connection:
             connection.row_factory = sqlite3.Row
             locations = {
                 row["location_id"]: dict(row)
@@ -668,31 +1023,92 @@ def create_schedule(request: ScheduleRequest):
                 )
             }
             activity_by_location = {}
-            for task in load_submitted_tasks():
+            completed_case_ids = set()
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='Inspection_History'"
+            ).fetchone():
+                completed_case_ids = {
+                    row[0] for row in connection.execute(
+                        "SELECT DISTINCT task_id FROM Inspection_History "
+                        "WHERE inspection_date < ?",
+                        (planning_date,),
+                    )
+                }
+            closed_complaint_ids = {
+                row[0] for row in connection.execute(
+                    "SELECT complaint_id FROM Citizen_Complaints "
+                    "WHERE lower(trim(coalesce(status, ''))) = 'closed'"
+                )
+            }
+
+            for record in registry:
+                source_id = record.get("source_id")
                 if (
-                    task.get("planning_date") != planning_date
-                    or task.get("status") != "Pending"
+                    record.get("task_type") == "Dengue Case Inspection"
+                    and source_id in completed_case_ids
+                    and "task_status" not in record
                 ):
+                    record["task_status"] = "Completed"
+                    record["status"] = "Completed"
+                    record["reason"] = "Matching inspection history exists by the planning date."
+                elif (
+                    record.get("task_type") == "Citizen Complaint"
+                    and source_id in closed_complaint_ids
+                    and _task_execution_status(record) not in {"Completed", "Cancelled", "In Progress"}
+                ):
+                    record["task_status"] = "Cancelled"
+                    record["status"] = "Cancelled"
+                    record["reason"] = "Source complaint is Closed; excluded from new assignment."
+
+            task_map = {}
+            for source_task in source_tasks:
+                task_id = source_task["scenario_task_id"]
+                existing = registry_by_id.get(task_id, {})
+                merged = {**source_task, **existing}
+                merged.update({
+                    key: source_task[key]
+                    for key in source_task
+                    if key not in {
+                        "task_status", "status", "assigned_phi", "start_time",
+                        "end_time", "schedule_history", "current_planning_date",
+                    }
+                })
+                merged["task_date"] = existing.get("task_date") or source_task["task_date"]
+                merged["task_status"] = _task_execution_status(existing)
+                merged.setdefault("schedule_history", [])
+                task_map[task_id] = merged
+
+            for record in registry:
+                task_id = record.get("scenario_task_id") or record.get("source_id")
+                task_day = record.get("task_date") or record.get("planning_date")
+                if not task_id or not task_day or task_day > planning_date:
                     continue
-                location_id = task.get("location_id")
-                location = locations.get(location_id)
+                if _task_execution_status(record) not in {"Pending", "In Progress"}:
+                    continue
+                if record.get("record_source") != "user_submitted_synthetic_demo":
+                    task_map.setdefault(task_id, prepare_scheduling_task(record))
+                    continue
+                location = locations.get(record.get("location_id"))
                 if location is None:
                     continue
+                location_id = record["location_id"]
                 if location_id not in activity_by_location:
                     activity_by_location[location_id] = calculate_location_activity(
                         connection, location_id, request.planning_date
                     )
-                task_type = task.get("task_type")
+                activity = activity_by_location[location_id]
                 score, reason, factors = calculate_task_priority(
                     location.get("risk_score"),
-                    task.get("urgency"),
-                    task.get("planning_date"),
+                    record.get("urgency"),
+                    task_day,
                     request.planning_date,
-                    activity_by_location[location_id],
-                    "case" if task_type == "Dengue Case Inspection" else "complaint",
+                    activity,
+                    "case" if record.get("task_type") == "Dengue Case Inspection" else "complaint",
                 )
-                scheduled_task = {
-                    **task,
+                task = {
+                    **record,
+                    "task_date": task_day,
                     "component2_risk_score": location.get("risk_score"),
                     "component2_risk_level": location.get("risk_level"),
                     "component2_score_source": location.get("score_source"),
@@ -704,62 +1120,109 @@ def create_schedule(request: ScheduleRequest):
                     "priority_level": get_priority_level(score),
                     "priority_reason": reason,
                     "priority_factors": factors,
-                    **activity_by_location[location_id],
+                    "data_quality_status": "review" if score is None else "complete",
+                    **activity,
                 }
-                if score is None:
-                    scheduled_task.update({
-                        "assigned_phi": "",
-                        "start_time": "",
-                        "end_time": "",
-                        "status": "Unscheduled",
-                        "data_quality_status": "review",
-                        "reason": reason,
-                    })
-                    review_tasks.append(scheduled_task)
-                else:
-                    scheduled_task["data_quality_status"] = "complete"
-                    submitted_tasks.append(scheduled_task)
-        tasks.extend(submitted_tasks)
-        phis = load_phis(planning_date)
+                task_map[task_id] = prepare_scheduling_task(task)
 
-        if not tasks:
-            plan = review_tasks
-            solver_status = "NO_ELIGIBLE_TASKS"
-        else:
+        candidates = []
+        in_progress = []
+        terminal_tasks = [
+            dict(record)
+            for record in registry
+            if record.get("current_planning_date") == planning_date
+            and _task_execution_status(record) in {"Completed", "Cancelled"}
+        ]
+        for task in task_map.values():
+            task_status = _task_execution_status(task)
+            if task_status not in {"Pending", "In Progress"}:
+                continue
+            task["task_status"] = task_status
+            task["planning_date"] = planning_date
+            task = prepare_scheduling_task(task)
+            if task_status == "In Progress":
+                task["status"] = "Scheduled"
+                in_progress.append(task)
+            else:
+                task["assigned_phi"] = ""
+                task["start_time"] = ""
+                task["end_time"] = ""
+                candidates.append(task)
+
+        try:
+            phis = load_phis(planning_date)
+        except ValueError as exc:
+            message = str(exc)
+            if "No PHI availability data" not in message:
+                raise
+            phis = []
+            for task in candidates:
+                task["assigned_phi"] = ""
+                task["start_time"] = ""
+                task["end_time"] = ""
+                task["status"] = "Unscheduled"
+                task["reason"] = message
+            solver_status = "NO_PHI_AVAILABILITY"
+
+        if candidates and phis:
             plan, solver_status = solve_schedule(
-                tasks,
+                candidates,
                 phis,
                 planning_date,
+                reserved_tasks=in_progress,
             )
-            plan.extend(review_tasks)
+        elif not candidates:
+            plan, solver_status = [], "NO_PENDING_TASKS"
+        else:
+            plan = candidates
+            solver_status = "NO_PHI_AVAILABILITY"
+            for task in plan:
+                task["assigned_phi"] = ""
+                task["start_time"] = ""
+                task["end_time"] = ""
+                task["status"] = "Unscheduled"
+                task["reason"] = (
+                    "No PHI availability data exists for this planning date."
+                )
+        plan.extend(in_progress)
+        plan.extend(terminal_tasks)
 
-        if not plan:
-            raise HTTPException(
-                status_code=422,
-                detail="The scheduler returned an empty plan.",
-            )
+        for row in plan:
+            _remove_unapproved_deadline_fields(row)
+            row["waiting_days"] = task_waiting_days(row, planning_date)
+            row["current_planning_date"] = planning_date
+            row["carried_forward"] = str(row.get("task_date", planning_date))[:10] < planning_date
+            _record_history(row, planning_date)
+            task_id = row.get("scenario_task_id") or row.get("source_id")
+            registry_by_id[task_id] = row
 
-        # Save the exact plan returned by the API scheduler.
-        # This does not overwrite the existing CLI schedule CSV.
-        API_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        save_task_records(list(registry_by_id.values()))
         plan_path = API_OUTPUT_DIR / f"phi_plan_{planning_date}.csv"
-
-        fieldnames = list(
-            dict.fromkeys(
-                field
-                for task in plan
-                for field in task
-            )
-        )
-
-        with plan_path.open(
-            "w",
-            newline="",
-            encoding="utf-8",
-        ) as file:
-            writer = csv.DictWriter(file, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(plan)
+        _write_plan_snapshot(plan_path, plan)
+        fingerprint = plan_store.plan_fingerprint(plan)
+        same_plan = previous_state.get("plan_fingerprint") == fingerprint
+        state_updates = {
+            "plan_fingerprint": fingerprint,
+            "solver_status": solver_status,
+            "required_unavailable_phis": previous_state.get("required_unavailable_phis", []),
+            "rescheduling_required": previous_state.get("rescheduling_required", False),
+            "rescheduling_processed": previous_state.get("rescheduling_processed", False),
+        }
+        if same_plan and previous_state.get("confirmed"):
+            state_updates.update({
+                "status": "confirmed",
+                "confirmed": True,
+                "confirmed_at": previous_state.get("confirmed_at"),
+                "released_to_phis": False,
+            })
+        else:
+            state_updates.update({
+                "status": "draft",
+                "confirmed": False,
+                "confirmed_at": None,
+                "released_to_phis": False,
+            })
+        schedule_state = plan_store.save_schedule_state(planning_date, state_updates)
 
     except HTTPException:
         raise
@@ -769,10 +1232,8 @@ def create_schedule(request: ScheduleRequest):
             detail=f"Could not generate and save the schedule: {exc}",
         ) from exc
 
-    scheduled_count = sum(
-        row.get("status") == "Scheduled" for row in plan
-    )
-
+    scheduled_count = sum(row.get("status") == "Scheduled" for row in plan)
+    unscheduled_count = sum(row.get("status") == "Unscheduled" for row in plan)
     return {
         "data_mode": "synthetic_research_data",
         "planning_policy": "provisional_research_prototype",
@@ -780,17 +1241,31 @@ def create_schedule(request: ScheduleRequest):
         "solver_status": solver_status,
         "total_tasks": len(plan),
         "scheduled_tasks": scheduled_count,
-        "unscheduled_tasks": len(plan) - scheduled_count,
-        "review_tasks": sum(
-            row.get("data_quality_status") == "review" for row in plan
+        "unscheduled_tasks": unscheduled_count,
+        "new_tasks": sum(
+            _task_execution_status(row) in {"Pending", "In Progress"}
+            and not row.get("carried_forward")
+            for row in plan
         ),
+        "pending_tasks": sum(
+            row.get("task_status") == "Pending" and row.get("status") == "Unscheduled"
+            for row in plan
+        ),
+        "carried_forward_tasks": sum(
+            row.get("task_status") in {"Pending", "In Progress"}
+            and row.get("carried_forward")
+            for row in plan
+        ),
+        "schedule_state": schedule_state,
+        "review_tasks": sum(row.get("priority_fallback") for row in plan),
+        "completed_tasks": sum(row.get("status") == "Completed" for row in plan),
+        "cancelled_tasks": sum(row.get("status") == "Cancelled" for row in plan),
         "schedule_saved": True,
         "tasks": plan,
         "note": (
-            "This is a synthetic research simulation, not a live "
-            "operational PHI plan. Task selection, task duration, "
-            "and priority rules use provisional assumptions. "
-            "The API schedule is saved separately from CLI outputs."
+            "Synthetic research plan. Review tasks retain a null numeric score "
+            "and use a labeled provisional scheduling tier. Unassigned tasks "
+            "remain Pending for later planning."
         ),
     }
 
@@ -825,6 +1300,9 @@ def reschedule_plan(request: RescheduleRequest):
         ) as file:
             plan = list(csv.DictReader(file))
 
+        for row in plan:
+            _remove_unapproved_deadline_fields(row)
+
         if not plan:
             raise HTTPException(
                 status_code=422,
@@ -842,11 +1320,34 @@ def reschedule_plan(request: RescheduleRequest):
                 ),
             )
 
+        availability_store.save_availability_override(
+            request.unavailable_phi,
+            request.planning_date,
+            "Unavailable",
+        )
+        state = plan_store.load_schedule_state(planning_date)
+        required = sorted(set(state.get("required_unavailable_phis", [])) | {
+            request.unavailable_phi
+        })
+        plan_store.save_schedule_state(
+            planning_date,
+            {
+                "status": "rescheduling_required",
+                "confirmed": False,
+                "released_to_phis": False,
+                "rescheduling_required": True,
+                "rescheduling_processed": False,
+                "required_unavailable_phis": required,
+            },
+        )
+        phi_daily = read_phi_daily(planning_date)
+
         updated_plan = reschedule_tasks(
             plan,
             phi_daily,
             request.unavailable_phi,
             assume_all_pending=request.assume_all_pending,
+            planning_date=planning_date,
         )
 
     except HTTPException:
@@ -869,6 +1370,7 @@ def reschedule_plan(request: RescheduleRequest):
 
     # Annotate updated tasks with previous assignment details and classification
     for row in updated_plan:
+        row["waiting_days"] = task_waiting_days(row, planning_date)
         tid = row.get("scenario_task_id") or row.get("source_id")
         orig = original_by_id.get(tid, {})
         row["previous_assigned_phi"] = orig.get("assigned_phi", "")
@@ -943,6 +1445,55 @@ def reschedule_plan(request: RescheduleRequest):
         and row.get("previous_assigned_phi") == request.unavailable_phi
     )
 
+    records = load_submitted_tasks()
+    records_by_id = {
+        row.get("scenario_task_id") or row.get("source_id"): row
+        for row in records
+    }
+    for row in updated_plan:
+        task_id = row.get("scenario_task_id") or row.get("source_id")
+        existing = records_by_id.get(task_id, {})
+        _remove_unapproved_deadline_fields(existing)
+        updated = {**existing, **row}
+        updated["task_date"] = existing.get("task_date") or row.get("task_date") or row.get("planning_date")
+        updated["schedule_history"] = existing.get("schedule_history", [])
+        updated["current_planning_date"] = planning_date
+        rescheduling_history = list(existing.get("rescheduling_history") or [])
+        original = original_by_id.get(task_id, {})
+        event = {
+            "planning_date": planning_date,
+            "unavailable_phi": request.unavailable_phi,
+            "previous_assigned_phi": original.get("assigned_phi") or "",
+            "previous_start_time": original.get("start_time") or "",
+            "previous_end_time": original.get("end_time") or "",
+            "assigned_phi": row.get("assigned_phi") or "",
+            "start_time": row.get("start_time") or "",
+            "end_time": row.get("end_time") or "",
+            "task_status": row.get("task_status") or "Pending",
+            "classification": row.get("reassignment_classification"),
+            "reason": row.get("reason") or "",
+        }
+        if not rescheduling_history or rescheduling_history[-1] != event:
+            rescheduling_history.append(event)
+        updated["rescheduling_history"] = rescheduling_history
+        _record_history(updated, planning_date)
+        records_by_id[task_id] = updated
+    save_task_records(list(records_by_id.values()))
+    _write_plan_snapshot(plan_path, updated_plan)
+    schedule_state = plan_store.save_schedule_state(
+        planning_date,
+        {
+            "status": "revised_pending_confirmation",
+            "confirmed": False,
+            "confirmed_at": None,
+            "released_to_phis": False,
+            "rescheduling_required": False,
+            "rescheduling_processed": True,
+            "required_unavailable_phis": [],
+            "plan_fingerprint": plan_store.plan_fingerprint(updated_plan),
+        },
+    )
+
     return {
         "data_mode": "synthetic_research_data",
         "planning_date": planning_date,
@@ -958,12 +1509,12 @@ def reschedule_plan(request: RescheduleRequest):
         "remaining_unscheduled_tasks": remaining_unscheduled_count,
         "unchanged_tasks": unchanged_count,
         "protected_tasks": protected_count,
+        "schedule_state": schedule_state,
         "original_tasks": plan,
         "tasks": updated_plan,
         "note": (
-            "Synthetic rescheduling simulation only. The API-generated "
-            "schedule CSV and source database are not modified by the "
-            "rescheduling function. The rescheduled result is returned "
-            "in the response and is not saved over the original schedule."
+            "Synthetic rescheduling simulation only. The source database "
+            "is unchanged; task execution and assignment state are retained "
+            "in the separate planning task store."
         ),
     }

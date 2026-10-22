@@ -20,6 +20,11 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from component_3_phi_planning.api.availability_store import (
+    load_phi_daily_defaults,
+)
+from component_3_phi_planning.optimization.phi_scheduler import task_waiting_days
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
@@ -32,6 +37,7 @@ VALID_TASK_STATUSES = {
     "pending": "Pending",
     "in progress": "In Progress",
     "completed": "Completed",
+    "cancelled": "Cancelled",
 }
 
 PRIORITY_ORDER = {
@@ -49,30 +55,9 @@ def read_csv(path):
 
 def read_phi_daily(plan_date):
     """Read modeled PHI availability, working hours and capacity."""
-    with sqlite3.connect(DB_PATH) as conn:
-        rows = conn.execute(
-            """
-            SELECT d.phi_id, d.availability, d.working_start, d.working_end,
-                   d.daily_capacity, d.existing_workload, m.moh_area, d.phi_range
-            FROM PHI_Daily AS d
-            JOIN PHI_Master AS m ON m.phi_id = d.phi_id
-            WHERE d.date = ?
-            """,
-            (plan_date,),
-        ).fetchall()
-
-    return {
-        row[0]: {
-            "availability": row[1],
-            "working_start": row[2],
-            "working_end": row[3],
-            "daily_capacity": int(row[4]),
-            "existing_workload": int(row[5]),
-            "moh_area": row[6],
-            "phi_range": row[7],
-        }
-        for row in rows
-    }
+    database_uri = DB_PATH.resolve().as_uri() + "?mode=ro"
+    with sqlite3.connect(database_uri, uri=True) as conn:
+        return load_phi_daily_defaults(conn, plan_date)
 
 
 def time_to_minutes(value):
@@ -129,6 +114,7 @@ def reschedule_tasks(
     phi_daily,
     unavailable_phi,
     assume_all_pending=False,
+    planning_date=None,
 ):
     """Reassign pending tasks when a PHI becomes unavailable.
 
@@ -167,14 +153,19 @@ def reschedule_tasks(
         phi_id
         for phi_id, details in phi_daily.items()
         if phi_id != unavailable_phi
-        and details["availability"] == "Available"
+        and str(details["availability"]).strip().casefold() == "available"
         and details["daily_capacity"] > details["existing_workload"]
     ]
 
-    # Attempt high-priority tasks first; then use descending score.
+    # Keep priority tier dominant, then same-day work and oldest carried work.
     affected.sort(
         key=lambda row: (
-            PRIORITY_ORDER.get(row.get("priority_level", ""), 99),
+            PRIORITY_ORDER.get(
+                row.get("scheduling_priority_level", row.get("priority_level", "")),
+                99,
+            ),
+            0 if task_waiting_days(row, planning_date) == 0 else 1,
+            -task_waiting_days(row, planning_date),
             -float(row.get("priority_score") or 0),
             row.get("scenario_task_id", ""),
         )
@@ -242,8 +233,18 @@ def reschedule_tasks(
                         break
 
                 if not has_conflict:
+                    task_village = str(task.get("village_area") or "").strip().casefold()
+                    phi_village = str(details.get("primary_village_area") or "").strip().casefold()
+                    task_range = str(task.get("phi_range") or "").strip().casefold()
+                    phi_range = str(details.get("phi_range") or "").strip().casefold()
+                    village_mismatch = int(bool(
+                        task_village and phi_village and task_village != phi_village
+                    ))
+                    range_mismatch = int(bool(task_range and phi_range and task_range != phi_range))
                     choices.append(
                         (
+                            village_mismatch,
+                            range_mismatch,
                             assigned_counts[phi_id],
                             candidate_start,
                             phi_id,
@@ -262,7 +263,7 @@ def reschedule_tasks(
             )
             continue
 
-        _, start, phi_id, end = min(choices)
+        _, _, _, start, phi_id, end = min(choices)
 
         task["assigned_phi"] = phi_id
         task["start_time"] = minutes_to_time(start)
@@ -318,6 +319,7 @@ def main():
         phi_daily,
         args.unavailable_phi,
         assume_all_pending=args.assume_all_pending,
+        planning_date=args.date,
     )
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

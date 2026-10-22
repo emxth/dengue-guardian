@@ -19,6 +19,9 @@ from component_3_phi_planning.prioritization.score_tasks import (
 from component_3_phi_planning.prioritization.activity_analytics import (
     calculate_location_activity,
 )
+from component_3_phi_planning.optimization.phi_scheduler import (
+    prepare_scheduling_task,
+)
 
 
 COMPONENT_DIR = Path(__file__).resolve().parents[1]
@@ -82,6 +85,23 @@ def load_submitted_tasks():
     return tasks
 
 
+def save_task_records(tasks):
+    """Atomically persist task lifecycle and scheduling state."""
+    if not isinstance(tasks, list) or any(not isinstance(task, dict) for task in tasks):
+        raise ValueError("Task storage must contain a list of task objects.")
+
+    TASK_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = TASK_STORE_PATH.with_suffix(".tmp")
+    try:
+        with temporary_path.open("w", encoding="utf-8") as file:
+            json.dump(tasks, file, indent=2)
+        temporary_path.replace(TASK_STORE_PATH)
+    except OSError:
+        if temporary_path.exists():
+            temporary_path.unlink()
+        raise
+
+
 def save_submitted_task(
     task: NewInspectionTask,
     location: dict,
@@ -140,6 +160,7 @@ def save_submitted_task(
         "record_source": "user_submitted_synthetic_demo",
         "status": "Pending",
     }
+    record = prepare_scheduling_task(record)
 
     TASK_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
