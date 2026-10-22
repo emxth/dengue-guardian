@@ -1513,9 +1513,27 @@ function RescheduleTab({
                         </div>
                     )}
                     {result.schedule_state?.confirmed && (
-                        <p className="rounded-md border border-riskCleared bg-mintSurface px-4 py-3 text-sm font-bold text-darkBase">
-                            Revised schedule confirmed for {result.planning_date}.
-                        </p>
+                        <>
+                            <p className="rounded-md border border-riskCleared bg-mintSurface px-4 py-3 text-sm font-bold text-darkBase">
+                                Revised schedule confirmed for {result.planning_date}.
+                            </p>
+                            <section className="overflow-hidden rounded-lg border border-borderLight bg-surface">
+                                <div className="border-b border-borderLight px-4 py-3">
+                                    <h4 className="text-sm font-bold text-darkBase">
+                                        Full Revised PHI Schedule
+                                    </h4>
+                                    <p className="mt-1 text-xs text-textMuted">
+                                        Review the confirmed assignments by PHI. This schedule is displayed here; it has not been sent to officers.
+                                    </p>
+                                </div>
+                                <ScheduleTable
+                                    tasks={(result.tasks ?? []).filter(
+                                        (task) => task.status === "Scheduled" && task.assigned_phi?.trim()
+                                    )}
+                                    emptyLabel="No assigned tasks are available for this date."
+                                />
+                            </section>
+                        </>
                     )}
                 </div>
             )}

@@ -42,7 +42,7 @@ export default function PriorityTable({
                         <th className="p-3">{categoryHeader}</th>
                         <th className="p-3">Priority</th>
                         <th className="p-3">Score</th>
-                        <th className="p-3">C2 Risk</th>
+                        <th className="p-3 text-center">Location Risk Score</th>
                         <th className="p-3">Location</th>
                         <th className="p-3">Date</th>
                     </tr>
@@ -99,7 +99,7 @@ export default function PriorityTable({
                                 </td>
 
                                 <td
-                                    className="p-3 text-xs text-textMuted whitespace-nowrap"
+                                    className="p-3 text-center text-xs text-textMuted whitespace-nowrap"
                                     title={row.component2_score_source ?? "Component 2 source unavailable"}
                                 >
                                     {typeof row.component2_risk_score === "number"
