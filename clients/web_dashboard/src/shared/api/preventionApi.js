@@ -107,5 +107,31 @@ export const preventionApi = {
             console.error('Error checking ML engine health:', error);
             throw error;
         }
+    },
+
+    /**
+     * Fetch server-side effectiveness aggregations
+     */
+    getEffectivenessSummary: async () => {
+        try {
+            const response = await apiClient.get('/analytics/effectiveness');
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching effectiveness summary:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Fetch server-side zone trend aggregations
+     */
+    getZoneTrends: async () => {
+        try {
+            const response = await apiClient.get('/analytics/zone-trends');
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching zone trends:', error);
+            throw error;
+        }
     }
 };

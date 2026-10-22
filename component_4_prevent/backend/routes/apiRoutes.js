@@ -7,6 +7,7 @@ const router  = express.Router();
 
 const { recordIntervention, getInterventions, recordFollowUp } = require('../controllers/interventionController');
 const { getRecommendation }                    = require('../controllers/recommendationController');
+const { getEffectivenessSummary, getZoneTrends } = require('../controllers/analyticsController');
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 
@@ -52,5 +53,14 @@ router.get('/ml-health', async (req, res) => {
         });
     }
 });
+
+// ── Server-Side Analytics Aggregation Routes ────────────────────────────────
+// @desc    Get aggregated effectiveness metrics & strategy breakdowns
+// @route   GET /api/analytics/effectiveness
+router.get('/analytics/effectiveness', getEffectivenessSummary);
+
+// @desc    Get aggregated intervention metrics grouped by geographical zone
+// @route   GET /api/analytics/zone-trends
+router.get('/analytics/zone-trends', getZoneTrends);
 
 module.exports = router;

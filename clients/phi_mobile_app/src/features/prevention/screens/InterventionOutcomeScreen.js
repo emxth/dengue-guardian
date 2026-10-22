@@ -15,7 +15,7 @@ import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
 // Express Backend API Base URL for MongoDB communication
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "http://172.20.10.4:5000/api";
 
 export default function InterventionOutcomeScreen({ navigation, route }) {
   const {
@@ -193,19 +193,6 @@ export default function InterventionOutcomeScreen({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-
-        {/* Top Info Banner */}
-        <View style={styles.topInfoBanner}>
-          <Ionicons
-            name="cloud-done-outline"
-            size={18}
-            color={DengueGuardianColors.primary}
-            style={{ marginRight: 8 }}
-          />
-          <Text style={styles.topInfoText}>
-            Logged to MongoDB: {activeProtocol} by {activeOfficer} • {activeZone}
-          </Text>
-        </View>
 
         {loading ? (
           <View style={[styles.card, { paddingVertical: 20, alignItems: "center" }]}>

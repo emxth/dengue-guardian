@@ -35,6 +35,7 @@ const RATING_COLORS = {
 
 export default function InterventionEffectivenessAnalytics() {
     const [records, setRecords] = useState([]);
+    const [serverSummary, setServerSummary] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -47,8 +48,16 @@ export default function InterventionEffectivenessAnalytics() {
         setLoading(true);
         setError(null);
         try {
-            const res = await preventionApi.getInterventions();
-            setRecords(res.data || []);
+            const [interventionsRes, summaryRes] = await Promise.allSettled([
+                preventionApi.getInterventions(),
+                preventionApi.getEffectivenessSummary()
+            ]);
+            if (interventionsRes.status === 'fulfilled') {
+                setRecords(interventionsRes.value?.data || []);
+            }
+            if (summaryRes.status === 'fulfilled') {
+                setServerSummary(summaryRes.value?.data || null);
+            }
         } catch (err) {
             console.error("Failed to load records for analytics:", err);
             setError("Unable to retrieve records from backend API for effectiveness analysis.");
@@ -84,17 +93,24 @@ export default function InterventionEffectivenessAnalytics() {
         return filteredRecords.filter(r => r.followUp && r.followUp.fociDropPercentage !== undefined);
     }, [filteredRecords]);
 
-    const totalCount = filteredRecords.length;
-    const evaluatedCount = evaluatedRecords.length;
+    const isFiltered = selectedZone !== 'ALL' || selectedStrategy !== 'ALL' || selectedRating !== 'ALL';
+
+    // Summary metrics: uses MongoDB server-side aggregation when unfiltered
+    const totalCount = (!isFiltered && serverSummary) ? serverSummary.totalInterventions : filteredRecords.length;
+    const evaluatedCount = (!isFiltered && serverSummary) ? serverSummary.totalFollowUps : evaluatedRecords.length;
     const pendingCount = totalCount - evaluatedCount;
 
-    const avgDrop = evaluatedCount > 0
-        ? Math.round(evaluatedRecords.reduce((acc, r) => acc + (r.followUp.fociDropPercentage || 0), 0) / evaluatedCount * 10) / 10
-        : 0;
+    const avgDrop = (!isFiltered && serverSummary)
+        ? serverSummary.avgFociDropPercentage
+        : (evaluatedCount > 0
+            ? Math.round(evaluatedRecords.reduce((acc, r) => acc + (r.followUp.fociDropPercentage || 0), 0) / evaluatedCount * 10) / 10
+            : 0);
 
-    const avgScore = evaluatedCount > 0
-        ? Math.round(evaluatedRecords.reduce((acc, r) => acc + (r.followUp?.score ?? r.effectivenessScore ?? 0), 0) / evaluatedCount * 10) / 10
-        : 0;
+    const avgScore = (!isFiltered && serverSummary)
+        ? (serverSummary.avgFollowUpScore || serverSummary.avgInitialScore)
+        : (evaluatedCount > 0
+            ? Math.round(evaluatedRecords.reduce((acc, r) => acc + (r.followUp?.score ?? r.effectivenessScore ?? 0), 0) / evaluatedCount * 10) / 10
+            : 0);
 
     const successCount = evaluatedRecords.filter(r =>
         r.followUp?.outcomeRating === 'Excellent' || r.followUp?.outcomeRating === 'Good'
@@ -118,6 +134,15 @@ export default function InterventionEffectivenessAnalytics() {
 
     // ─── Chart Data 2: Performance by Strategy ─────────────────────────────────────
     const strategyComparisonData = useMemo(() => {
+        if (!isFiltered && serverSummary?.strategyBreakdown?.length > 0) {
+            return serverSummary.strategyBreakdown.map(s => ({
+                strategy: s.strategy,
+                avgDropPercentage: s.avgDrop != null ? s.avgDrop : 0,
+                avgScore: s.avgScore || 0,
+                sampleSize: s.count
+            }));
+        }
+
         const grouped = {};
         evaluatedRecords.forEach(r => {
             const strat = r.tier1MacroStrategy || 'Other';
@@ -135,10 +160,18 @@ export default function InterventionEffectivenessAnalytics() {
             avgScore: Math.round((g.totalScore / g.count) * 10) / 10,
             sampleSize: g.count
         }));
-    }, [evaluatedRecords]);
+    }, [isFiltered, serverSummary, evaluatedRecords]);
 
     // ─── Chart Data 3: Outcome Rating Breakdown ───────────────────────────────────
     const ratingPieData = useMemo(() => {
+        if (!isFiltered && serverSummary?.ratingBreakdown?.length > 0) {
+            return serverSummary.ratingBreakdown.map(item => ({
+                name: item._id,
+                value: item.count,
+                color: RATING_COLORS[item._id] || '#94A3B8'
+            }));
+        }
+
         const counts = {};
         evaluatedRecords.forEach(r => {
             const rating = r.followUp?.outcomeRating || 'Moderate';
@@ -150,16 +183,25 @@ export default function InterventionEffectivenessAnalytics() {
             value: counts[k],
             color: RATING_COLORS[k] || '#94A3B8'
         }));
-    }, [evaluatedRecords]);
+    }, [isFiltered, serverSummary, evaluatedRecords]);
 
     return (
         <div className="space-y-6">
             {/* Top Filter Bar */}
             <div className="bg-surface p-4 rounded-xl border border-borderLight shadow-sm space-y-3">
                 <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-textMuted flex items-center gap-1.5">
-                        <Filter size={14} className="text-primary" /> Supported Operational Record Filters
-                    </span>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-textMuted flex items-center gap-1.5">
+                            <Filter size={14} className="text-primary" /> Supported Operational Record Filters
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            !isFiltered && serverSummary
+                                ? "bg-mintSurface text-primary border border-primary/20"
+                                : "bg-background text-textMuted border border-borderLight"
+                        }`}>
+                            {!isFiltered && serverSummary ? "Source: Server-Side MongoDB Pipeline" : "Custom Filter Active"}
+                        </span>
+                    </div>
                     <button
                         onClick={fetchAllRecords}
                         disabled={loading}

@@ -14,7 +14,7 @@ import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
 // Express Backend API Base URL for MongoDB & ML Continual Learning
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "http://172.20.10.4:5000/api";
 
 export default function AdaptiveLearningScreen({ navigation, route }) {
   const {
@@ -57,19 +57,19 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
   const activeZone = latestRecord?.zoneId || "LOC004";
   const docId = latestRecord?._id ? latestRecord._id.slice(-8) : "Verified";
 
-  const initialFoci = latestRecord?.environmentalContext?.breedingSites != null 
-    ? Number(latestRecord.environmentalContext.breedingSites) 
+  const initialFoci = latestRecord?.environmentalContext?.breedingSites != null
+    ? Number(latestRecord.environmentalContext.breedingSites)
     : null;
-  const postFoci = latestRecord?.followUp?.postBreedingFoci != null 
-    ? Number(latestRecord.followUp.postBreedingFoci) 
+  const postFoci = latestRecord?.followUp?.postBreedingFoci != null
+    ? Number(latestRecord.followUp.postBreedingFoci)
     : null;
   const actualDropPct = latestRecord?.followUp?.fociDropPercentage != null
     ? Number(latestRecord.followUp.fociDropPercentage)
     : (fociDropPct != null
       ? Number(fociDropPct)
-      : (initialFoci != null && postFoci != null && initialFoci > 0 
-          ? Math.round(((initialFoci - postFoci) / initialFoci) * 1000) / 10 
-          : null));
+      : (initialFoci != null && postFoci != null && initialFoci > 0
+        ? Math.round(((initialFoci - postFoci) / initialFoci) * 1000) / 10
+        : null));
 
   const actualScore = latestRecord?.followUp?.score != null
     ? Number(latestRecord.followUp.score)
@@ -77,7 +77,7 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
       ? Number(latestRecord.effectivenessScore)
       : (dynamicScore != null ? Number(dynamicScore) : null));
 
-  const outcomeRating = latestRecord?.followUp?.outcomeRating 
+  const outcomeRating = latestRecord?.followUp?.outcomeRating
     || (actualDropPct != null ? (actualDropPct >= 70 ? "Excellent" : "Good") : "Pending Review");
 
   const rainfall = Number(latestRecord?.environmentalContext?.rainfall ?? 85.0);
@@ -85,8 +85,8 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
 
   // 2. Real dynamic derivation from ML engine baseline prediction & field drop
   const baselineEff = Number(aiData?.top_recommendation?.predicted_effectiveness ?? 73.4);
-  const computedGain = actualDropPct != null 
-    ? Number((actualDropPct > 0 ? (actualDropPct * 0.08) : 0).toFixed(1)) 
+  const computedGain = actualDropPct != null
+    ? Number((actualDropPct > 0 ? (actualDropPct * 0.08) : 0).toFixed(1))
     : 0;
   const updatedConfidence = Math.min(99.0, Number((baselineEff + computedGain).toFixed(1)));
   const gainText = computedGain > 0 ? `+${computedGain.toFixed(1)}% Gain` : (actualDropPct != null ? "Baseline Maintained" : "Awaiting Follow-up");
@@ -142,23 +142,6 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
           <Text style={styles.versionText}>{retrainResult ? "v4.3.0" : "v4.2.8"}</Text>
         </View>
 
-        {/* Status Synchronized Banner */}
-        <View style={styles.statusBanner}>
-          <View style={styles.statusLeft}>
-            <View style={[styles.statusDot, retrainResult && { backgroundColor: "#0284C7" }]} />
-            <Text style={styles.statusText}>
-              {retrainResult
-                ? "STATUS: MODEL RETRAINED & DEPLOYED"
-                : "STATUS: MODEL SYNCHRONIZED • OUTCOME INGESTED"}
-            </Text>
-          </View>
-          <Ionicons
-            name={retrainResult ? "shield-checkmark" : "checkmark-circle-outline"}
-            size={18}
-            color={retrainResult ? "#0284C7" : "#0D9488"}
-          />
-        </View>
-
         {loading ? (
           <View style={[styles.impactCard, { paddingVertical: 24, alignItems: "center" }]}>
             <ActivityIndicator size="small" color="#0D9488" style={{ marginBottom: 8 }} />
@@ -173,7 +156,7 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
               <View style={styles.evidenceHeaderRow}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
                   <Ionicons name="server-outline" size={16} color="#0D9488" style={{ marginRight: 6 }} />
-                  <Text style={styles.evidenceTitle}>INGESTED FIELD EVIDENCE (MongoDB)</Text>
+                  <Text style={styles.evidenceTitle}>INGESTED FIELD EVIDENCE </Text>
                 </View>
                 <View style={styles.evidenceDocBadge}>
                   <Text style={styles.evidenceDocText}>Doc: #{docId}</Text>

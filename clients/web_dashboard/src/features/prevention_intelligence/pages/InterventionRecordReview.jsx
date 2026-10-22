@@ -202,15 +202,6 @@ export default function InterventionRecordReview() {
                 </div>
             )}
 
-            {/* Results Count Banner */}
-            <div className="flex justify-between items-center text-xs text-textMuted px-1">
-                <span>
-                    Showing <strong className="text-darkBase">{sortedRecords.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}</strong> to{' '}
-                    <strong className="text-darkBase">{Math.min(currentPage * PAGE_SIZE, sortedRecords.length)}</strong> of{' '}
-                    <strong className="text-darkBase">{sortedRecords.length}</strong> filtered records ({records.length} total in MongoDB)
-                </span>
-            </div>
-
             {/* Data Table */}
             <div className="bg-surface rounded-xl border border-borderLight shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
