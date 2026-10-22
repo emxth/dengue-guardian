@@ -1,221 +1,339 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { preventionApi } from '../../../shared/api/preventionApi';
-import XAIExplanationChart from '../components/XAIExplanationChart';
-import InterventionForm from '../components/InterventionForm';
-import { ShieldCheck, Sparkles, Sliders, Play, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+    ShieldCheck,
+    RefreshCw,
+    AlertCircle,
+    CheckCircle2,
+    Clock,
+    MapPin,
+    BarChart3,
+    AlertTriangle,
+    ArrowRight,
+    TrendingUp,
+    FileText,
+    Activity
+} from 'lucide-react';
 
-const PreventionDashboard = () => {
-    const [context, setContext] = useState({
-        temperature: 29.5,
-        rainfall: 85.0,
-        cumulative_rainfall_14_days: 210.5,
-        mosquito_density: 45.0,
-        breeding_sites_count: 28,
-        wind_speed: 10.0
-    });
+export default function PreventionDashboard() {
+    const navigate = useNavigate();
 
-    const [recommendationData, setRecommendationData] = useState(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
+    // Live state
+    const [records, setRecords] = useState([]);
+    const [loadingRecords, setLoadingRecords] = useState(true);
+    const [errorRecords, setErrorRecords] = useState(null);
+    const [lastUpdated, setLastUpdated] = useState(null);
 
-    const fetchRecommendations = async () => {
-        setLoading(true);
-        setError(null);
+    const loadData = async () => {
+        setLoadingRecords(true);
+        setErrorRecords(null);
+
+        // Fetch real interventions from MongoDB via Express backend
         try {
-            const data = await preventionApi.getRecommendations(context);
-            setRecommendationData(data);
+            const res = await preventionApi.getInterventions();
+            const recList = res.data || [];
+            setRecords(recList);
+            setLastUpdated(new Date().toLocaleTimeString());
         } catch (err) {
-            setError('Failed to connect to the AI Recommendation Engine.');
+            console.error("Interventions fetch failed:", err);
+            setErrorRecords("Failed to connect to backend service.");
         } finally {
-            setLoading(false);
+            setLoadingRecords(false);
         }
     };
 
     useEffect(() => {
-        fetchRecommendations();
+        loadData();
     }, []);
 
-    const handleInputChange = (e) => {
-        setContext({
-            ...context,
-            [e.target.name]: parseFloat(e.target.value)
-        });
-    };
+    // ─── Legitimate Calculations Based Exclusively on Actual Retrieved Records ──
+    const totalInterventions = records.length;
+    const completedWithFollowUp = records.filter(r => r.followUp && r.followUp.fociDropPercentage !== undefined);
+    const pendingFollowUpCount = totalInterventions - completedWithFollowUp.length;
+    const followUpRate = totalInterventions > 0
+        ? Math.round((completedWithFollowUp.length / totalInterventions) * 100)
+        : 0;
+
+    // Unique accessible areas discovered from actual DB records
+    const accessibleAreas = [...new Set(records.map(r => r.zoneId).filter(Boolean))];
+
+    // Average effectiveness score from actual records
+    const avgEffectivenessScore = completedWithFollowUp.length > 0
+        ? Math.round(
+            completedWithFollowUp.reduce((acc, r) => acc + (r.followUp?.score ?? r.effectivenessScore ?? 0), 0) /
+            completedWithFollowUp.length * 10
+        ) / 10
+        : (records.length > 0
+            ? Math.round(records.reduce((acc, r) => acc + (r.effectivenessScore || 0), 0) / records.length * 10) / 10
+            : 0);
+
+    // Average breeding foci drop percentage from actual records
+    const avgFociDrop = completedWithFollowUp.length > 0
+        ? Math.round(
+            completedWithFollowUp.reduce((acc, r) => acc + (r.followUp?.fociDropPercentage || 0), 0) /
+            completedWithFollowUp.length * 10
+        ) / 10
+        : 0;
+
+    // Actual outcome rating counts
+    const ratingBreakdown = completedWithFollowUp.reduce((acc, r) => {
+        const rating = r.followUp?.outcomeRating || "Unrated";
+        acc[rating] = (acc[rating] || 0) + 1;
+        return acc;
+    }, {});
+
+    // Identify actual recurring problems from retrieved records
+    // e.g. records with 'Needs Review' rating or 0% / low drop rate
+    const problemRecords = completedWithFollowUp.filter(r =>
+        r.followUp?.outcomeRating === "Needs Review" || (r.followUp?.fociDropPercentage !== undefined && r.followUp.fociDropPercentage <= 30)
+    );
+
+    // Data quality issues: records missing follow-up, or zero initial foci
+    const dataQualityIssues = records.filter(r =>
+        !r.followUp ||
+        r.followUp.postBreedingFoci === undefined ||
+        !r.environmentalContext ||
+        r.environmentalContext.breedingSites === 0
+    );
 
     return (
         <div className="space-y-6">
-            {/* Top Banner (Component 1 Style) */}
-            <div className="bg-mintSurface border-l-4 border-primary p-5 rounded-xl flex flex-wrap gap-4 justify-between items-center">
+            {/* Status & Refresh Banner */}
+            <div className="bg-mintSurface border-l-4 border-primary p-5 rounded-xl flex flex-wrap gap-4 justify-between items-center shadow-sm">
                 <div>
                     <h3 className="text-lg font-bold text-darkBase">
-                        Prevention Intelligence & Vector Control
+                        MOH Prevention Intelligence Overview
                     </h3>
-                    <p className="text-sm text-textMuted mt-0.5">
-                        Context-aware AI decision support, NDCU intervention protocols, and continual learning
-                    </p>
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <span className="bg-surface text-riskCleared border border-riskCleared px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5">
-                        <ShieldCheck size={14} /> AI Decision Engine Active
-                    </span>
+
                     <button
-                        onClick={fetchRecommendations}
-                        disabled={loading}
-                        className="bg-primary hover:bg-secondary text-surface px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+                        onClick={loadData}
+                        disabled={loadingRecords}
+                        className="bg-primary hover:bg-secondary text-surface px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-sm"
                     >
-                        <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh Recommendations
+                        <RefreshCw size={14} className={loadingRecords ? "animate-spin" : ""} />
+                        Refresh Intelligence
                     </button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Error States */}
+            {errorRecords && (
+                <div className="p-4 bg-riskHigh/10 border border-riskHigh/30 text-riskHigh rounded-xl text-xs flex items-center gap-3">
+                    <AlertCircle size={18} className="shrink-0" />
+                    <div>
+                        <strong className="block font-bold">Backend Connection Issue:</strong>
+                        <span>{errorRecords} Ensure the Node.js Express service is active on port 5000.</span>
+                    </div>
+                </div>
+            )}
 
-                {/* LEFT COLUMN: Inputs & Forms */}
-                <div className="col-span-1 flex flex-col gap-6">
-                    {/* Context Input Panel */}
-                    <div className="bg-surface p-6 rounded-xl border border-borderLight shadow-sm">
-                        <div className="flex items-center justify-between mb-5">
-                            <div>
-                                <span className="text-xs font-bold uppercase text-textMuted tracking-wider">Field Parameters</span>
-                                <h2 className="text-base font-bold text-darkBase">Environmental Context</h2>
+            {/* 4 Primary KPI Summary Cards (Computed Strictly From Actual Records) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {/* KPI 1: Accessible Areas */}
+                <div className="bg-surface p-5 rounded-xl border border-borderLight shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                        <span className="text-[11px] font-bold uppercase text-textMuted tracking-wider">
+                            Active Prevention Zones
+                        </span>
+                        <div className="w-9 h-9 rounded-full bg-mintSurface text-primary flex items-center justify-center">
+                            <MapPin size={18} />
+                        </div>
+                    </div>
+                    <p className="text-2xl font-extrabold text-darkBase">
+                        {loadingRecords ? "..." : accessibleAreas.length}
+                    </p>
+                </div>
+
+                {/* KPI 2: Total Recorded Interventions */}
+                <div className="bg-surface p-5 rounded-xl border border-borderLight shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                        <span className="text-[11px] font-bold uppercase text-textMuted tracking-wider">
+                            Field Interventions Records
+                        </span>
+                        <div className="w-9 h-9 rounded-full bg-accent/40 text-primary flex items-center justify-center">
+                            <FileText size={18} />
+                        </div>
+                    </div>
+                    <p className="text-2xl font-extrabold text-darkBase">
+                        {loadingRecords ? "..." : totalInterventions}
+                    </p>
+                    <p className="text-xs font-semibold text-riskCleared mt-1">
+                        {completedWithFollowUp.length} with verified Day-7 follow-up
+                    </p>
+                </div>
+
+                {/* KPI 3: Average Foci Drop Percentage */}
+                <div className="bg-surface p-5 rounded-xl border border-borderLight shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                        <span className="text-[11px] font-bold uppercase text-textMuted tracking-wider">
+                            Avg. Breeding Site Reduction
+                        </span>
+                        <div className="w-9 h-9 rounded-full bg-mintSurface text-riskCleared flex items-center justify-center">
+                            <TrendingUp size={18} />
+                        </div>
+                    </div>
+                    <p className="text-2xl font-extrabold text-darkBase">
+                        {loadingRecords ? "..." : `${avgFociDrop}%`}
+                    </p>
+                    <p className="text-xs text-textMuted mt-1">
+                        Across {completedWithFollowUp.length} evaluated field actions
+                    </p>
+                </div>
+
+                {/* KPI 4: Average Effectiveness Score */}
+                <div className="bg-surface p-5 rounded-xl border border-borderLight shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                        <span className="text-[11px] font-bold uppercase text-textMuted tracking-wider">
+                            Average Effectiveness Score
+                        </span>
+                        <div className="w-9 h-9 rounded-full bg-accent/40 text-primary flex items-center justify-center">
+                            <ShieldCheck size={18} />
+                        </div>
+                    </div>
+                    <p className="text-2xl font-extrabold text-darkBase">
+                        {loadingRecords ? "..." : `${avgEffectivenessScore} / 100`}
+                    </p>
+                    <p className="text-xs text-textMuted mt-1">
+                        Rating: {ratingBreakdown['Excellent'] || 0} Exc • {ratingBreakdown['Good'] || 0} Good
+                    </p>
+                </div>
+            </div>
+
+            {/* Unified Surveillance & Operational Governance Section */}
+            <div className="bg-surface p-6 rounded-2xl border border-borderLight shadow-sm space-y-5">
+                {/* Section Header */}
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-borderLight pb-4">
+                    <div>
+                        <h3 className="text-lg font-bold text-darkBase">
+                            Intervention Audit
+                        </h3>
+                    </div>
+                </div>
+
+                {/* 2-Column Internal Breakdown */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Left: Surveillance Flagging (Recurring Problems) */}
+                    <div className="p-5 rounded-xl bg-background border border-borderLight flex flex-col justify-between">
+                        <div>
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                                        <AlertTriangle size={16} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-bold text-darkBase">
+                                            Intervention Alerts
+                                        </h4>
+                                    </div>
+                                </div>
+                                <span className={`text-xs font-bold font-mono px-2.5 py-0.5 rounded-full ${problemRecords.length > 0 ? 'bg-amber-100 text-amber-800' : 'bg-mintSurface text-riskCleared'
+                                    }`}>
+                                    {problemRecords.length} Flagged
+                                </span>
                             </div>
-                            <div className="w-8 h-8 rounded-full bg-mintSurface flex items-center justify-center text-primary">
-                                <Sliders size={18} />
+
+                            {problemRecords.length === 0 ? (
+                                <div className="p-6 text-center text-xs text-riskCleared font-semibold flex flex-col items-center justify-center my-4 bg-surface rounded-xl border border-borderLight">
+                                    <CheckCircle2 size={22} className="mb-1.5 text-riskCleared" />
+                                    All evaluated interventions achieved satisfactory breeding site reduction (&gt; 30%).
+                                </div>
+                            ) : (
+                                <div className="space-y-2.5">
+                                    {problemRecords.slice(0, 3).map((rec, i) => (
+                                        <div key={i} className="p-3 bg-surface rounded-xl border border-borderLight text-xs flex justify-between items-center hover:border-primary/30 transition shadow-sm">
+                                            <div>
+                                                <div className="flex items-center gap-1.5 font-bold text-darkBase">
+                                                    <span>{rec.zoneId}</span>
+                                                    <span className="text-[11px] text-textMuted font-normal">• PHI: {rec.phiId}</span>
+                                                </div>
+                                                <p className="text-[11px] text-textMuted mt-0.5">
+                                                    {rec.tier1MacroStrategy} ({rec.tier2MicroStrategy})
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-riskHigh font-bold font-mono text-xs block">
+                                                    {rec.followUp?.fociDropPercentage}% drop
+                                                </span>
+                                                <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full font-semibold inline-block mt-0.5">
+                                                    {rec.followUp?.outcomeRating || "Needs Review"}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {problemRecords.length > 0 && (
+                            <div className="pt-3">
+                                <button
+                                    onClick={() => navigate('/dashboard/prevention/records')}
+                                    className="w-full bg-surface hover:bg-slate-100 border border-borderLight text-darkBase py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm"
+                                >
+                                    <AlertTriangle size={14} className="text-amber-600" /> View All  <ArrowRight size={13} />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right: Operational Governance & Audit Status */}
+                    <div className="p-5 rounded-xl bg-background border border-borderLight flex flex-col justify-between">
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-accent/30 text-primary flex items-center justify-center">
+                                        <Clock size={16} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-bold text-darkBase">
+                                            Follow-up & Verification
+                                        </h4>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="p-3.5 bg-surface rounded-xl border border-borderLight flex items-center justify-between">
+                                <div>
+                                    <span className="text-[11px] font-bold text-textMuted uppercase tracking-wider block">
+                                        Pending Day-7 Follow-ups
+                                    </span>
+                                    <p className="text-xs text-textMuted mt-0.5">
+                                        {pendingFollowUpCount === 0
+                                            ? "All field actions have completed Day-7 verification"
+                                            : "Interventions requiring post-action inspection"}
+                                    </p>
+                                </div>
+                                <span className={`text-2xl font-extrabold font-mono px-3 py-1 rounded-xl ${pendingFollowUpCount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-mintSurface text-riskCleared'
+                                    }`}>
+                                    {pendingFollowUpCount}
+                                </span>
+                            </div>
+
+                            <div className="p-3.5 bg-surface rounded-xl border border-borderLight space-y-2">
+                                <div className="flex justify-between items-center text-xs">
+                                    <span className="text-textMuted font-medium">Follow-up Verification Rate</span>
+                                    <span className="font-bold text-darkBase font-mono">
+                                        {followUpRate}% ({completedWithFollowUp.length} of {totalInterventions} records)
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            {Object.keys(context).map((key) => (
-                                <div key={key}>
-                                    <label className="block text-xs font-bold uppercase text-textMuted tracking-wider mb-1.5 capitalize">
-                                        {key.replace(/_/g, ' ')}
-                                    </label>
-                                    <input
-                                        type="number"
-                                        name={key}
-                                        value={context[key]}
-                                        onChange={handleInputChange}
-                                        className="block w-full rounded-lg border border-borderLight bg-background px-3.5 py-2 text-sm font-semibold text-darkBase focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition"
-                                    />
-                                </div>
-                            ))}
+                        <div className="pt-3">
                             <button
-                                onClick={fetchRecommendations}
-                                disabled={loading}
-                                className="w-full bg-primary hover:bg-secondary text-surface py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-sm"
+                                onClick={() => navigate('/dashboard/prevention/records')}
+                                className="w-full bg-primary hover:bg-secondary text-surface py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm"
                             >
-                                <Play size={14} />
-                                {loading ? 'Evaluating Model...' : 'Run AI Engine'}
+                                <FileText size={14} /> Review Field Records <ArrowRight size={13} />
                             </button>
                         </div>
                     </div>
-
-                    {/* PHI Intervention Form */}
-                    <InterventionForm />
-                </div>
-
-                {/* RIGHT COLUMN: AI Outputs & Charts */}
-                <div className="col-span-2 flex flex-col gap-6">
-                    {/* AI Recommendation Output */}
-                    <div className="bg-surface p-6 rounded-xl border border-borderLight shadow-sm">
-                        <div className="flex items-center justify-between mb-5">
-                            <div>
-                                <span className="text-xs font-bold uppercase text-textMuted tracking-wider">Decision Support</span>
-                                <h2 className="text-base font-bold text-darkBase">AI Strategy Recommendation</h2>
-                            </div>
-                            <div className="w-8 h-8 rounded-full bg-mintSurface flex items-center justify-center text-primary">
-                                <Sparkles size={18} />
-                            </div>
-                        </div>
-
-                        {loading && (
-                            <div className="flex items-center gap-3 p-4 bg-background rounded-xl border border-borderLight">
-                                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                                <p className="text-sm font-semibold text-secondary">Analyzing entomological & environmental data...</p>
-                            </div>
-                        )}
-
-                        {error && (
-                            <div className="flex items-center gap-3 p-4 bg-riskHigh/10 border border-riskHigh/30 text-riskHigh rounded-xl">
-                                <AlertCircle size={18} />
-                                <p className="text-sm font-semibold">{error}</p>
-                            </div>
-                        )}
-
-                        {recommendationData && !loading && (
-                            <div>
-                                {/* Highlighted Recommendation Banner */}
-                                <div className="bg-mintSurface border-l-4 border-primary p-5 rounded-xl mb-6 flex flex-wrap justify-between items-start gap-4">
-                                    <div className="space-y-1.5 flex-1">
-                                        <span className="bg-surface text-primary border border-primary/20 px-3 py-1 rounded-full text-xs font-bold inline-block mb-1">
-                                            Top Recommended Protocol
-                                        </span>
-                                        <h3 className="text-lg font-bold text-darkBase">
-                                            Tier 1 Strategy: <span className="text-primary">{recommendationData.top_recommendation.tier_1_macro}</span>
-                                        </h3>
-                                        <p className="text-sm text-textMuted">
-                                            <strong className="text-darkBase">Tier 2 Micro:</strong> {recommendationData.top_recommendation.tier_2_micro}
-                                        </p>
-                                        <p className="text-sm text-textMuted">
-                                            <strong className="text-darkBase">Application Method:</strong> {recommendationData.top_recommendation.application_method}
-                                        </p>
-                                        <div className="pt-2">
-                                            <span className="bg-primary text-surface px-3.5 py-1.5 rounded-full text-xs font-bold inline-flex items-center gap-1.5 shadow-sm">
-                                                <CheckCircle2 size={14} /> Predicted Effectiveness: {recommendationData.top_recommendation.predicted_effectiveness}%
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="w-10 h-10 rounded-full bg-surface text-primary flex items-center justify-center shrink-0 border border-borderLight shadow-sm">
-                                        <ShieldCheck size={20} />
-                                    </div>
-                                </div>
-
-                                <div className="mb-6">
-                                    <span className="text-xs font-bold uppercase text-textMuted tracking-wider block mb-2">Rationale</span>
-                                    <div className="p-4 bg-background rounded-xl border border-borderLight">
-                                        <p className="text-sm text-textMuted italic leading-relaxed">
-                                            {recommendationData.top_recommendation.rationale}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <span className="text-xs font-bold uppercase text-textMuted tracking-wider block mb-2">Ranked Alternatives</span>
-                                    <ul className="space-y-2.5">
-                                        {recommendationData.ranked_alternatives.slice(1).map((alt, index) => (
-                                            <li key={index} className="flex justify-between items-center text-sm p-3.5 bg-background rounded-xl border border-borderLight">
-                                                <div className="flex items-center gap-3">
-                                                    <span className="w-6 h-6 rounded-full bg-surface border border-borderLight text-textMuted text-xs font-bold flex items-center justify-center">
-                                                        {index + 2}
-                                                    </span>
-                                                    <span className="font-bold text-darkBase">
-                                                        {alt.macro_strategy} <span className="font-normal text-textMuted">({alt.micro_strategy})</span>
-                                                    </span>
-                                                </div>
-                                                <span className="font-bold text-xs bg-mintSurface text-primary border border-primary/20 px-2.5 py-1 rounded-full">
-                                                    {alt.predicted_effectiveness}%
-                                                </span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* XAI Chart (Only shows when data is loaded) */}
-                    {recommendationData && !loading && (
-                        <XAIExplanationChart
-                            featureImportance={recommendationData.feature_importance}
-                            topRecommendation={recommendationData.top_recommendation}
-                            context={context}
-                        />
-                    )}
                 </div>
             </div>
         </div>
     );
-};
-
-export default PreventionDashboard;
+}

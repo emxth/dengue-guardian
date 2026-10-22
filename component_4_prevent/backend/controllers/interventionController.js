@@ -110,13 +110,29 @@ exports.recordIntervention = async (req, res) => {
     }
 };
 
-// @desc    Get all interventions (optionally filter by zone)
+// @desc    Get all interventions (optionally filter by zone, with dynamic limit/pagination)
 // @route   GET /api/interventions
 exports.getInterventions = async (req, res) => {
     try {
         const query = req.query.zoneId ? { zoneId: req.query.zoneId } : {};
-        const records = await InterventionRecord.find(query).sort({ dateApplied: -1 }).limit(100);
-        return res.status(200).json({ success: true, count: records.length, data: records });
+        const limit = req.query.limit !== undefined ? parseInt(req.query.limit, 10) : 1000;
+        const page = parseInt(req.query.page, 10) || 1;
+        const skip = (page - 1) * (limit > 0 ? limit : 0);
+
+        let mongoQuery = InterventionRecord.find(query).sort({ dateApplied: -1 });
+        if (skip > 0) mongoQuery = mongoQuery.skip(skip);
+        if (limit > 0) mongoQuery = mongoQuery.limit(limit);
+
+        const records = await mongoQuery;
+        const total = await InterventionRecord.countDocuments(query);
+
+        return res.status(200).json({ 
+            success: true, 
+            count: records.length, 
+            total,
+            page,
+            data: records 
+        });
     } catch (error) {
         console.error('[InterventionController] getInterventions error:', error.message);
         return res.status(400).json({ success: false, error: error.message });

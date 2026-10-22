@@ -15,7 +15,7 @@ import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
 // Express Backend API Base URL for MongoDB communication
-const API_BASE_URL = "http://172.20.10.4:5000/api";
+const API_BASE_URL = "http://localhost:5000/api";
 
 export default function InterventionOutcomeScreen({ navigation, route }) {
   const {

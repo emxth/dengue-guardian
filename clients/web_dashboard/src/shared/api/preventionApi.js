@@ -66,5 +66,46 @@ export const preventionApi = {
             console.error('Error triggering model retraining:', error);
             throw error;
         }
+    },
+
+    /**
+     * Record a Day-7 follow-up outcome for a specific intervention
+     * @param {String} id MongoDB ObjectId of the intervention
+     * @param {Object} followUpData { postBreedingFoci, postBreteauIndex }
+     */
+    recordFollowUp: async (id, followUpData) => {
+        try {
+            const response = await apiClient.post(`/interventions/${id}/follow-up`, followUpData);
+            return response.data;
+        } catch (error) {
+            console.error('Error recording follow-up outcome:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Check C4 Backend health
+     */
+    getBackendHealth: async () => {
+        try {
+            const response = await apiClient.get('/health');
+            return response.data;
+        } catch (error) {
+            console.error('Error checking backend health:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Check ML Engine health (proxied through backend)
+     */
+    getMlHealth: async () => {
+        try {
+            const response = await apiClient.get('/ml-health');
+            return response.data;
+        } catch (error) {
+            console.error('Error checking ML engine health:', error);
+            throw error;
+        }
     }
 };

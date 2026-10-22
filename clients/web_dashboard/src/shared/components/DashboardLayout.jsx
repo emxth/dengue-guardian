@@ -1,5 +1,18 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Cpu, Users, LogOut } from "lucide-react";
+import {
+    Cpu,
+    Users,
+    LogOut,
+    ShieldCheck,
+    LayoutDashboard,
+    MapPin,
+    BarChart3,
+    Table,
+    Award,
+    BrainCircuit,
+    Share2,
+    BellRing
+} from "lucide-react";
 import logo from "../../assets/DengueGuardian.jpg";
 
 export default function DashboardLayout() {
@@ -8,8 +21,8 @@ export default function DashboardLayout() {
     return (
         <div className="min-h-screen flex bg-background">
             {/* Left Side Navigation */}
-            <aside className="w-64 bg-surface border-r border-borderLight flex flex-col justify-between">
-                <div>
+            <aside className="w-64 bg-surface border-r border-borderLight flex flex-col justify-between shrink-0">
+                <div className="overflow-y-auto">
                     {/* Top Brand Header (#3674B5 Guardian Cobalt) */}
                     <div className="bg-primary text-surface p-5 flex items-center gap-3">
                         {/* Logo Badge Container */}
@@ -24,54 +37,162 @@ export default function DashboardLayout() {
                             <h1 className="font-bold text-base leading-tight">
                                 Dengue-Guardian
                             </h1>
-                            <p className="text-xs text-accent">Admin & Telemetry</p>
+                            <p className="text-xs text-accent">MOH Supervision Portal</p>
                         </div>
                     </div>
 
                     {/* Navigation Links */}
-                    <div className="p-4">
-                        <p className="text-xs font-bold uppercase text-textMuted px-3 mb-2">
-                            Control Modules
-                        </p>
-                        <nav className="space-y-1.5">
-                            <NavLink
-                                to="/dashboard/telemetry"
-                                className={({ isActive }) =>
-                                    `flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-bold transition ${isActive
-                                        ? "bg-mintSurface text-primary border-l-4 border-primary"
-                                        : "text-textMuted hover:bg-background"
-                                    }`
-                                }
-                            >
-                                <Cpu size={18} />
-                                Edge Telemetry
-                            </NavLink>
+                    <div className="p-4 space-y-4">
+                        {/* Core Platform Modules */}
+                        <div>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-textMuted px-3 mb-2">
+                                Administrative Modules
+                            </p>
+                            <nav className="space-y-1">
+                                <NavLink
+                                    to="/dashboard/telemetry"
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <Cpu size={16} />
+                                    Edge Telemetry (C1)
+                                </NavLink>
 
-                            <NavLink
-                                to="/dashboard/users"
-                                className={({ isActive }) =>
-                                    `flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-bold transition ${isActive
-                                        ? "bg-mintSurface text-primary border-l-4 border-primary"
-                                        : "text-textMuted hover:bg-background"
-                                    }`
-                                }
-                            >
-                                <Users size={18} />
-                                User Management
-                            </NavLink>
+                                <NavLink
+                                    to="/dashboard/users"
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <Users size={16} />
+                                    PHI User Management
+                                </NavLink>
+                            </nav>
+                        </div>
 
-                            <NavLink
-                                to="/dashboard/prevention"
-                                className={({ isActive }) =>
-                                    `flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-bold transition ${isActive
-                                        ? "bg-mintSurface text-primary border-l-4 border-primary"
-                                        : "text-textMuted hover:bg-background"
-                                    }`
-                                }
-                            >
-                                Prevention Intelligence
-                            </NavLink>
-                        </nav>
+                        {/* Component 4 Prevention Intelligence Modules */}
+                        <div>
+                            <p className="text-[12px] font-bold uppercase tracking-wider text-textMuted px-3 mb-2 flex items-center justify-between">
+                                <span>Prevention Intelligence </span>
+                                <span className="w-1.5 h-1.5 rounded-full bg-riskCleared" />
+                            </p>
+                            <nav className="space-y-1">
+                                <NavLink
+                                    to="/dashboard/prevention"
+                                    end
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <LayoutDashboard size={15} />
+                                    Prevention Dashboard
+                                </NavLink>
+
+                                <NavLink
+                                    to="/dashboard/prevention/area"
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <MapPin size={15} />
+                                    Area Intelligence
+                                </NavLink>
+
+                                {/* <NavLink
+                                    to="/dashboard/prevention/analytics"
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <BarChart3 size={15} />
+                                    Effectiveness Analytics
+                                </NavLink> */}
+
+                                <NavLink
+                                    to="/dashboard/prevention/records"
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <Table size={15} />
+                                    Record Review & Audit
+                                </NavLink>
+
+                                <NavLink
+                                    to="/dashboard/prevention/validation"
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <Award size={15} />
+                                    Expert AI Validation
+                                </NavLink>
+
+                                {/* <NavLink
+                                    to="/dashboard/prevention/learning"
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <BrainCircuit size={15} />
+                                    Adaptive Learning
+                                </NavLink> */}
+
+                                {/* KG */}
+                                {/*
+                                <NavLink
+                                    to="/dashboard/prevention/knowledge-graph"
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <Share2 size={15} />
+                                    Knowledge Graph
+                                </NavLink>
+
+                                <NavLink
+                                    to="/dashboard/prevention/alerts"
+                                    className={({ isActive }) =>
+                                        `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${isActive
+                                            ? "bg-mintSurface text-primary border-l-4 border-primary"
+                                            : "text-textMuted hover:bg-background hover:text-darkBase"
+                                        }`
+                                    }
+                                >
+                                    <BellRing size={15} />
+                                    Alerts & Reports
+                                </NavLink>
+                                */}
+                            </nav>
+                        </div>
                     </div>
                 </div>
 
@@ -96,7 +217,7 @@ export default function DashboardLayout() {
                             MOH Supervisor & Edge System Portal
                         </h2>
                         <p className="text-xs text-textMuted">
-                            Component 1 Telemetry & PHI Field Officer Access Control
+                            Telemetry & PHI Field Officer Access Control
                         </p>
                     </div>
                     <div className="flex items-center gap-3">

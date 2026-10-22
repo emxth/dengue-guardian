@@ -37,4 +37,20 @@ router.post('/retrain', async (req, res) => {
     }
 });
 
+// ── ML Service Health & Status Check ──────────────────────────────────────────
+// @desc    Proxy GET /api/ml-health → FastAPI /health
+// @route   GET /api/ml-health
+router.get('/ml-health', async (req, res) => {
+    try {
+        const response = await axios.get(`${ML_SERVICE_URL}/health`, { timeout: 5000 });
+        return res.status(200).json({ success: true, data: response.data });
+    } catch (error) {
+        console.error('[apiRoutes] /ml-health error:', error.message);
+        return res.status(500).json({
+            success: false,
+            error: error.response?.data?.detail || error.message,
+        });
+    }
+});
+
 module.exports = router;

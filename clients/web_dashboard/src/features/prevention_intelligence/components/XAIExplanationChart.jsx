@@ -39,17 +39,12 @@ const XAIExplanationChart = ({ featureImportance, topRecommendation, context }) 
         <div className="bg-surface p-6 rounded-xl border border-borderLight shadow-sm">
             <div className="flex items-center justify-between mb-2">
                 <div>
-                    <span className="text-xs font-bold uppercase text-textMuted tracking-wider">Model Interpretability</span>
                     <h3 className="text-base font-bold text-darkBase">Explainable AI (XAI) Feature Analysis</h3>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-mintSurface flex items-center justify-center text-primary">
                     <Activity size={18} />
                 </div>
             </div>
-
-            <p className="text-xs text-textMuted mb-4">
-                Visualizing native XGBoost Tree SHAP values. Features with positive contribution push the decision toward recommending <strong className="text-darkBase">{strategyName}</strong>.
-            </p>
 
             <div className="flex items-center gap-4 mb-4 text-xs font-bold">
                 <span className="flex items-center gap-1.5 text-riskHigh">

@@ -36,6 +36,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _MODEL_PATH    = os.path.join(_HERE, "saved_models", "xgboost_dengue_model.json")
 _FEATURES_PATH = os.path.join(_HERE, "saved_models", "model_features.pkl")
 _BENCHMARK_CSV = os.path.join(_HERE, "../data/benchmark/phi_intervention_benchmark.csv")
+_DB_PATH       = os.path.join(_HERE, "interventions.db")
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
 
@@ -190,7 +191,7 @@ async def retrain_xgboost_model():
             df_benchmark = pd.DataFrame()
 
         # ── Step 2: Load field outcomes from the unified DB table ────────────
-        conn = sqlite3.connect("interventions.db")
+        conn = sqlite3.connect(_DB_PATH)
         try:
             df_field = pd.read_sql_query(
                 "SELECT temperature, rainfall, cumulative_rainfall_14_days, "

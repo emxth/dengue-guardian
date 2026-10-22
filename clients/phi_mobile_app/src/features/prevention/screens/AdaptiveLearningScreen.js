@@ -14,7 +14,7 @@ import { DengueGuardianColors } from "../../../shared/theme/colors";
 import HeaderBar from "../components/HeaderBar";
 
 // Express Backend API Base URL for MongoDB & ML Continual Learning
-const API_BASE_URL = "http://172.20.10.4:5000/api";
+const API_BASE_URL = "http://localhost:5000/api";
 
 export default function AdaptiveLearningScreen({ navigation, route }) {
   const {
@@ -57,25 +57,39 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
   const activeZone = latestRecord?.zoneId || "LOC004";
   const docId = latestRecord?._id ? latestRecord._id.slice(-8) : "Verified";
 
-  const initialFoci = Number(latestRecord?.environmentalContext?.breedingSites ?? 28);
-  const postFoci = Number(latestRecord?.followUp?.postBreedingFoci ?? (initialFoci - 20));
-  const actualDropPct = Number(
-    latestRecord?.followUp?.fociDropPercentage ??
-    fociDropPct ??
-    (initialFoci > 0 ? Math.round(((initialFoci - postFoci) / initialFoci) * 1000) / 10 : 71.4)
-  );
+  const initialFoci = latestRecord?.environmentalContext?.breedingSites != null 
+    ? Number(latestRecord.environmentalContext.breedingSites) 
+    : null;
+  const postFoci = latestRecord?.followUp?.postBreedingFoci != null 
+    ? Number(latestRecord.followUp.postBreedingFoci) 
+    : null;
+  const actualDropPct = latestRecord?.followUp?.fociDropPercentage != null
+    ? Number(latestRecord.followUp.fociDropPercentage)
+    : (fociDropPct != null
+      ? Number(fociDropPct)
+      : (initialFoci != null && postFoci != null && initialFoci > 0 
+          ? Math.round(((initialFoci - postFoci) / initialFoci) * 1000) / 10 
+          : null));
 
-  const actualScore = Number(latestRecord?.followUp?.score ?? latestRecord?.effectivenessScore ?? dynamicScore ?? 98);
-  const outcomeRating = latestRecord?.followUp?.outcomeRating || (actualDropPct >= 70 ? "Excellent" : "Good");
+  const actualScore = latestRecord?.followUp?.score != null
+    ? Number(latestRecord.followUp.score)
+    : (latestRecord?.effectivenessScore != null
+      ? Number(latestRecord.effectivenessScore)
+      : (dynamicScore != null ? Number(dynamicScore) : null));
+
+  const outcomeRating = latestRecord?.followUp?.outcomeRating 
+    || (actualDropPct != null ? (actualDropPct >= 70 ? "Excellent" : "Good") : "Pending Review");
 
   const rainfall = Number(latestRecord?.environmentalContext?.rainfall ?? 85.0);
   const temperature = Number(latestRecord?.environmentalContext?.temperature ?? 29.5);
 
   // 2. Real dynamic derivation from ML engine baseline prediction & field drop
   const baselineEff = Number(aiData?.top_recommendation?.predicted_effectiveness ?? 73.4);
-  const computedGain = Number((actualDropPct > 0 ? (actualDropPct * 0.08) : 3.2).toFixed(1));
+  const computedGain = actualDropPct != null 
+    ? Number((actualDropPct > 0 ? (actualDropPct * 0.08) : 0).toFixed(1)) 
+    : 0;
   const updatedConfidence = Math.min(99.0, Number((baselineEff + computedGain).toFixed(1)));
-  const gainText = `+${computedGain.toFixed(1)}% Gain`;
+  const gainText = computedGain > 0 ? `+${computedGain.toFixed(1)}% Gain` : (actualDropPct != null ? "Baseline Maintained" : "Awaiting Follow-up");
 
   const handleTriggerRetrain = async () => {
     setIsRetraining(true);
@@ -174,13 +188,19 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
                 </View>
                 <View style={styles.evidenceItem}>
                   <Text style={styles.evidenceItemLabel}>Field Drop</Text>
-                  <Text style={[styles.evidenceItemValue, { color: "#0F766E" }]}>{actualDropPct}%</Text>
-                  <Text style={styles.evidenceItemSub}>{initialFoci} → {postFoci} sites</Text>
+                  <Text style={[styles.evidenceItemValue, { color: "#0F766E" }]}>
+                    {actualDropPct != null ? `${actualDropPct}%` : "Pending"}
+                  </Text>
+                  <Text style={styles.evidenceItemSub}>
+                    {initialFoci != null ? initialFoci : "—"} → {postFoci != null ? `${postFoci} sites` : "Pending"}
+                  </Text>
                 </View>
                 <View style={styles.evidenceItem}>
                   <Text style={styles.evidenceItemLabel}>Outcome</Text>
                   <Text style={styles.evidenceItemValue}>{outcomeRating}</Text>
-                  <Text style={styles.evidenceItemSub}>{actualScore}/100 pts</Text>
+                  <Text style={styles.evidenceItemSub}>
+                    {actualScore != null ? `${actualScore}/100 pts` : "Pending"}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -253,8 +273,12 @@ export default function AdaptiveLearningScreen({ navigation, route }) {
                 <Text style={styles.ruleBodyText}>
                   Model weights for <Text style={styles.boldDarkText}>{activeProtocol}</Text> (
                   {activeMicro}) adapted for <Text style={styles.boldBlueText}>{rainfall}mm rain</Text> &{" "}
-                  <Text style={styles.boldBlueText}>{temperature}°C</Text> under confirmed{" "}
-                  <Text style={styles.boldDarkText}>{actualDropPct}%</Text> source reduction efficacy.
+                  <Text style={styles.boldBlueText}>{temperature}°C</Text>
+                  {actualDropPct != null ? (
+                    <> under confirmed <Text style={styles.boldDarkText}>{actualDropPct}%</Text> source reduction efficacy.</>
+                  ) : (
+                    <> with post-intervention audit outcome pending.</>
+                  )}
                 </Text>
               </View>
             </View>
