@@ -13,3 +13,4 @@ captum
 celery
 redis
 pymongo
+openpyxl
