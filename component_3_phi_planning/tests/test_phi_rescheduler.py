@@ -136,6 +136,29 @@ class TestPhiRescheduler(unittest.TestCase):
         self.assertEqual(active["end_time"], "08:45")
         self.assertEqual(active["status"], "Scheduled")
 
+    def test_cancelled_task_is_not_reassigned(self):
+        plan = [
+            task(
+                "TASK-CANCELLED", "PHI02", "08:00", "08:45",
+                task_status="Cancelled",
+            ),
+            task("TASK-PENDING", "PHI02", "08:45", "09:30"),
+        ]
+        availability = {
+            "PHI01": phi(capacity=3),
+            "PHI02": phi(capacity=3),
+        }
+
+        result = reschedule_tasks(plan, availability, "PHI02")
+        cancelled = next(
+            row for row in result
+            if row["scenario_task_id"] == "TASK-CANCELLED"
+        )
+
+        self.assertEqual(cancelled["task_status"], "Cancelled")
+        self.assertEqual(cancelled["assigned_phi"], "PHI02")
+        self.assertEqual(cancelled["start_time"], "08:00")
+
     def test_missing_execution_status_is_rejected(self):
         plan = [task("TASK-1", "PHI01", "08:00", "08:45")]
         del plan[0]["task_status"]
@@ -201,6 +224,142 @@ class TestPhiRescheduler(unittest.TestCase):
         self.assertEqual(reassigned["assigned_phi"], "PHI01")
         self.assertEqual(reassigned["start_time"], "08:45")
         self.assertEqual(reassigned["end_time"], "09:30")
+
+    def test_higher_score_is_reassigned_before_older_lower_score_task(self):
+        plan = [
+            {**task("TASK-OLDER-LOWER", "PHI02", "08:00", "08:45", score=80),
+             "task_date": "2026-03-01"},
+            {**task("TASK-NEWER-HIGHER", "PHI02", "08:45", "09:30", score=99),
+             "task_date": "2026-04-03"},
+        ]
+        availability = {
+            "PHI01": phi(capacity=1),
+            "PHI02": phi(capacity=2),
+        }
+
+        result = reschedule_tasks(
+            plan,
+            availability,
+            "PHI02",
+        )
+
+        higher_score = next(row for row in result if row["scenario_task_id"] == "TASK-NEWER-HIGHER")
+        older_lower_score = next(row for row in result if row["scenario_task_id"] == "TASK-OLDER-LOWER")
+        self.assertEqual(higher_score["assigned_phi"], "PHI01")
+        self.assertEqual(older_lower_score["status"], "Unscheduled")
+
+    def test_review_fallback_tier_orders_adaptive_reassignment(self):
+        low_fallback = task(
+            "TASK-LOW-FALLBACK", "PHI02", "08:00", "08:45", score=0,
+        )
+        high_fallback = task(
+            "TASK-HIGH-FALLBACK", "PHI02", "08:45", "09:30", score=0,
+        )
+        for row, fallback in (
+            (low_fallback, "Low"),
+            (high_fallback, "High"),
+        ):
+            row.update({
+                "priority_score": None,
+                "priority_level": "Review",
+                "scheduling_priority_level": fallback,
+                "priority_fallback": True,
+            })
+
+        result = reschedule_tasks(
+            [low_fallback, high_fallback],
+            {
+                "PHI01": phi(capacity=1),
+                "PHI02": phi(capacity=2, availability="Unavailable"),
+            },
+            "PHI02",
+        )
+        by_id = {row["scenario_task_id"]: row for row in result}
+
+        self.assertEqual(by_id["TASK-HIGH-FALLBACK"]["assigned_phi"], "PHI01")
+        self.assertEqual(by_id["TASK-HIGH-FALLBACK"]["status"], "Scheduled")
+        self.assertEqual(by_id["TASK-LOW-FALLBACK"]["status"], "Unscheduled")
+
+    def test_reassignment_prefers_responsible_range_when_feasible(self):
+        pending = task("TASK-LOCAL", "PHI-UNAVAILABLE", "08:00", "08:45")
+        pending.update({"moh_area": "Kaduwela", "phi_range": "Local Range"})
+        plan = [pending]
+        availability = {
+            "PHI-UNAVAILABLE": {
+                **phi(availability="Unavailable"),
+                "moh_area": "Kaduwela",
+                "phi_range": "Local Range",
+            },
+            "PHI-BACKUP": {
+                **phi(capacity=2),
+                "moh_area": "Kaduwela",
+                "phi_range": "Other Range",
+            },
+            "PHI-LOCAL": {
+                **phi(capacity=2),
+                "moh_area": "Kaduwela",
+                "phi_range": "Local Range",
+            },
+        }
+
+        result = reschedule_tasks(plan, availability, "PHI-UNAVAILABLE")
+
+        self.assertEqual(result[0]["status"], "Scheduled")
+        self.assertEqual(result[0]["assigned_phi"], "PHI-LOCAL")
+
+    def test_reassignment_prefers_primary_village_phi(self):
+        pending = task("TASK-VILLAGE", "PHI-UNAVAILABLE", "08:00", "08:45")
+        pending.update({"moh_area": "Kaduwela", "village_area": "Village A"})
+        availability = {
+            "PHI-UNAVAILABLE": {
+                **phi(availability="Unavailable"),
+                "moh_area": "Kaduwela",
+                "primary_village_area": "Village A",
+            },
+            "PHI-B": {
+                **phi(capacity=2),
+                "moh_area": "Kaduwela",
+                "primary_village_area": "Village B",
+            },
+            "PHI-A": {
+                **phi(capacity=2),
+                "moh_area": "Kaduwela",
+                "primary_village_area": "Village A",
+            },
+        }
+
+        result = reschedule_tasks(plan=[pending], phi_daily=availability, unavailable_phi="PHI-UNAVAILABLE")
+
+        self.assertEqual(result[0]["status"], "Scheduled")
+        self.assertEqual(result[0]["assigned_phi"], "PHI-A")
+
+    def test_reassignment_attempts_same_day_before_carried_task(self):
+        carried = task("TASK-CARRIED", "PHI-UNAVAILABLE", "08:00", "08:45", score=100)
+        carried.update({"task_date": "2026-05-04", "moh_area": "Kaduwela"})
+        today = task("TASK-TODAY", "PHI-UNAVAILABLE", "08:45", "09:30", score=40)
+        today.update({"task_date": "2026-05-06", "moh_area": "Kaduwela"})
+        roster = {
+            "PHI-UNAVAILABLE": {
+                **phi(availability="Unavailable", capacity=2),
+                "moh_area": "Kaduwela",
+            },
+            "PHI-OTHER": {
+                **phi(capacity=1),
+                "moh_area": "Kaduwela",
+                "phi_range": "Other Range",
+            },
+        }
+
+        result = reschedule_tasks(
+            [carried, today],
+            roster,
+            "PHI-UNAVAILABLE",
+            planning_date="2026-05-06",
+        )
+        by_id = {row["scenario_task_id"]: row for row in result}
+
+        self.assertEqual(by_id["TASK-TODAY"]["assigned_phi"], "PHI-OTHER")
+        self.assertEqual(by_id["TASK-CARRIED"]["status"], "Unscheduled")
 
     def test_rejects_invalid_execution_status(self):
         plan = [
