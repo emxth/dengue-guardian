@@ -14,29 +14,30 @@ WARD_COORDINATES = {
 }
 
 
-def fetch_open_meteo_data(past_days=56):
+def fetch_historical_climate():
     """
-    Pulls live and recent historical climate data from Open-Meteo API.
-    past_days=56 provides exactly 8 weeks of daily data to aggregate.
+    Pulls 8 months of real historical climate data using Open-Meteo's Archive API
+    (which bypasses the 90-day limit). Years are then shifted to 2026 to
+    seamlessly fuse with the synthetic Component 3 clinical dataset.
     """
-    print(f"--- Fetching Climate Data from Open-Meteo ({past_days} days) ---")
+    print("--- Fetching Climate Data from Open-Meteo Archive API ---")
 
     all_ward_data = []
 
     for ward, coords in WARD_COORDINATES.items():
         print(
-            f"Pulling data for {ward} (Lat: {coords['lat']}, Lon: {coords['lon']})..."
+            f"Pulling historical data for {ward} (Lat: {coords['lat']}, Lon: {coords['lon']})..."
         )
 
-        # Open-Meteo Forecast endpoint allows looking backwards via 'past_days'
-        url = "https://api.open-meteo.com/v1/forecast"
+        # Use the dedicated Archive API instead of the standard Forecast API
+        url = "https://archive-api.open-meteo.com/v1/archive"
         params = {
             "latitude": coords["lat"],
             "longitude": coords["lon"],
+            "start_date": "2023-03-01",  # Real historical baseline
+            "end_date": "2023-10-31",  # 8 full months of data
             "daily": ["temperature_2m_mean", "precipitation_sum"],
             "timezone": "Asia/Colombo",
-            "past_days": past_days,
-            "forecast_days": 1,  # We only need historical data up to today
         }
 
         response = requests.get(url, params=params)
@@ -53,14 +54,18 @@ def fetch_open_meteo_data(past_days=56):
                 }
             )
 
+            # Shift the dates to 2026 to merge perfectly with Component 3 case data
+            df["Date"] = df["Date"].apply(lambda x: x.replace(year=x.year + 3))
+
             df["Ward_Name"] = ward
             all_ward_data.append(df)
         else:
             print(f"[ERROR] Failed to fetch data for {ward}: {response.text}")
 
-        # Brief sleep to ensure we safely respect the 600 calls/min limit
+        # Respect the free tier API rate limits
         time.sleep(0.5)
 
+    # The pd.concat error occurred previously because this list was empty
     final_df = pd.concat(all_ward_data, ignore_index=True)
     return final_df
 
@@ -73,8 +78,6 @@ def aggregate_to_weekly(daily_df):
 
     weekly_list = []
     for ward, group in daily_df.groupby("Ward_Name"):
-        # Resample daily data to weekly (W-MON = Week starting on Monday)
-        # Sum the rainfall for total weekly accumulation, Mean the temperature
         weekly_data = (
             group.set_index("Date")
             .resample("W-MON")
@@ -86,19 +89,18 @@ def aggregate_to_weekly(daily_df):
         weekly_list.append(weekly_data)
 
     weekly_df = pd.concat(weekly_list, ignore_index=True)
-    # Drop rows with NaN values (often the current incomplete week)
     return weekly_df.dropna()
 
 
 if __name__ == "__main__":
-    # 1. Pull Live Data
-    raw_climate_df = fetch_open_meteo_data(past_days=56)
+    # 1. Pull historical data
+    raw_climate_df = fetch_historical_climate()
 
     # 2. Convert to Model Tensor Format
     weekly_tensor_data = aggregate_to_weekly(raw_climate_df)
 
     print("\n--- Processed Weekly Tensor Data (Preview) ---")
-    print(weekly_tensor_data.head(10))
+    print(weekly_tensor_data.head())
 
     # 3. Save to data directory
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
