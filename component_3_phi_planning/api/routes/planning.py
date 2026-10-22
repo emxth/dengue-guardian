@@ -50,7 +50,7 @@ COMPONENT_DIR = Path(__file__).resolve().parents[2]
 DATABASE_PATH = (
     COMPONENT_DIR
     / "data"
-    / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
+    / "Kaduwela_C3_Updated_New_ver.sqlite"
 )
 
 # Keep API-generated schedules separate from CLI-generated schedules.

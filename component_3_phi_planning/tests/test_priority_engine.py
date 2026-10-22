@@ -16,7 +16,7 @@ from component_3_phi_planning.prioritization.score_tasks import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "data" / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
+DB_PATH = ROOT / "data" / "Kaduwela_C3_Updated_New_ver.sqlite"
 
 
 def make_activity_connection(daily_multiplier=1, baseline_multiplier=1):

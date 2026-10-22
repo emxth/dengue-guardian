@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "data" / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
+DB_PATH = ROOT / "data" / "Kaduwela_C3_Updated_New_ver.sqlite"
 PLAN_DIR = ROOT / "optimization" / "output"
 OUTPUT_DIR = ROOT / "rescheduling" / "output"
 

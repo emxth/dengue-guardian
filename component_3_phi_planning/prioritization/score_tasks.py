@@ -19,7 +19,7 @@ from component_3_phi_planning.prioritization.activity_analytics import (
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR.parent / "data"
-DEFAULT_DATABASE = DATA_DIR / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
+DEFAULT_DATABASE = DATA_DIR / "Kaduwela_C3_Updated_New_ver.sqlite"
 DEFAULT_OUTPUT_DIR = BASE_DIR / "output"
 
 

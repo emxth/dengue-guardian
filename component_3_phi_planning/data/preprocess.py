@@ -7,7 +7,7 @@ import pandas as pd
 
 DEFAULT_DATABASE_PATH = (
     Path(__file__).resolve().parent
-    / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
+    / "Kaduwela_C3_Updated_New_ver.sqlite"
 )
 
 
@@ -55,10 +55,11 @@ def prepare_case_notifications(dataframe):
         errors="coerce"
     ).dt.time
 
-    dataframe["risk_indicator"] = pd.to_numeric(
-        dataframe["risk_indicator"],
-        errors="coerce"
-    )
+    if "risk_indicator" in dataframe.columns:
+        dataframe["risk_indicator"] = pd.to_numeric(
+            dataframe["risk_indicator"],
+            errors="coerce"
+        )
 
     dataframe["inspection_required"] = (
         dataframe["inspection_required"]
@@ -257,7 +258,7 @@ def print_preprocessing_summary(prepared_data, database_path):
     validate_dataframe(
         prepared_data["cases"],
         "Case Notifications",
-        ["task_id", "notification_date", "location_id", "risk_indicator"]
+        ["task_id", "notification_date", "location_id", "inspection_required"]
     )
 
     validate_dataframe(

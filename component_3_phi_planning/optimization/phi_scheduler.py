@@ -24,7 +24,7 @@ DATA_DIR = ROOT / "data"
 PRIORITY_DIR = ROOT / "prioritization" / "output"
 OUTPUT_DIR = ROOT / "optimization" / "output"
 
-DB_PATH = DATA_DIR / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
+DB_PATH = DATA_DIR / "Kaduwela_C3_Updated_New_ver.sqlite"
 
 # Explicit synthetic modeling assumptions for the first prototype.
 DEFAULT_DATE = DEFAULT_PLANNING_DATE

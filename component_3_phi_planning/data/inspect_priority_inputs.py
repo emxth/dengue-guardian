@@ -4,7 +4,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = (
-    BASE_DIR / "Kaduwela_C3_Research_Database_CleanPlanning.sqlite"
+    BASE_DIR / "Kaduwela_C3_Updated_New_ver.sqlite"
 )
 
 PRIORITY_COLUMNS = {
