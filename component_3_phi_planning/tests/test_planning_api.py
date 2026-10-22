@@ -53,6 +53,11 @@ def test_priorities_endpoint():
     assert body["scoring_policy"] == "provisional"
     assert body["total_cases"] == 6050
     assert body["total_complaints"] == 811
+    assert body["date_coverage"] == {
+        "task_date_from": "2026-04-01",
+        "task_date_to": "2026-09-30",
+        "score_as_of_max": "2026-09-30",
+    }
     assert len(body["tasks"]) == 5
     assert len(body["cases"]) + len(body["complaints"]) == 5
 

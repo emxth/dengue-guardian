@@ -385,21 +385,37 @@ def get_priorities(
 
     try:
         with sqlite3.connect(database_uri, uri=True) as connection:
-            latest_data_date = date.fromisoformat(
-                connection.execute(
-                    "SELECT MAX(notification_date) FROM Case_Notifications"
-                ).fetchone()[0]
-            )
+            latest_case_date = connection.execute(
+                "SELECT MAX(notification_date) FROM Case_Notifications"
+            ).fetchone()[0]
+            earliest_task_date, latest_task_date = connection.execute(
+                """
+                SELECT MIN(task_date), MAX(task_date)
+                FROM (
+                    SELECT notification_date AS task_date FROM Case_Notifications
+                    UNION ALL
+                    SELECT received_date AS task_date FROM Citizen_Complaints
+                )
+                """
+            ).fetchone()
+            date_coverage = {
+                "task_date_from": earliest_task_date,
+                "task_date_to": latest_task_date,
+                "score_as_of_max": latest_case_date,
+            }
+            latest_data_date = date.fromisoformat(latest_case_date)
             selected_date = planning_date or date_to or latest_data_date
             cache_key = _priority_cache_key(selected_date)
             cached_snapshot = _PRIORITY_SNAPSHOT_CACHE.get(cache_key)
             if cached_snapshot is not None:
                 cases, complaints, location_map = cached_snapshot
-                return _make_priority_page(
+                page = _make_priority_page(
                     cases, complaints, location_map, selected_date, date_from,
                     date_to, limit, offset, task_type, priority_level,
                     location_id, search,
                 )
+                page["date_coverage"] = date_coverage
+                return page
             cases = score_cases(connection, selected_date)
             complaints = score_complaints(connection, selected_date)
 
@@ -586,10 +602,12 @@ def get_priorities(
     complaints = complaints + submitted_complaints
     _PRIORITY_SNAPSHOT_CACHE.clear()
     _PRIORITY_SNAPSHOT_CACHE[cache_key] = (cases, complaints, location_map)
-    return _make_priority_page(
+    page = _make_priority_page(
         cases, complaints, location_map, selected_date, date_from,
         date_to, limit, offset, task_type, priority_level, location_id, search,
     )
+    page["date_coverage"] = date_coverage
+    return page
 
 
 @router.get("/analytics/monthly")

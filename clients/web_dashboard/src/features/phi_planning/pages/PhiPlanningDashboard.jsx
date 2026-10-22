@@ -36,9 +36,6 @@ import MonthlyDengueTrends from "../components/MonthlyDengueTrends";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_DATE = "2026-07-01";
-const DEFAULT_PRIORITY_DATE = "2026-09-30";
-const DEFAULT_TASK_DATE_FROM = "2026-04-01";
-const DEFAULT_TASK_DATE_TO = "2026-09-30";
 const PRIORITY_LIMIT_OPTIONS = [25, 50, 100, 200];
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
@@ -58,11 +55,12 @@ export default function PhiPlanningDashboard() {
     const [activeTab, setActiveTab] = useState("overview");
 
     // ── Priorities state ──────────────────────────────────────────────────────
-    const [priorityLimit, setPriorityLimit] = useState(50);
-    const [priorityDate, setPriorityDate] = useState(DEFAULT_PRIORITY_DATE);
-    const [taskDateFrom, setTaskDateFrom] = useState(DEFAULT_TASK_DATE_FROM);
-    const [taskDateTo, setTaskDateTo] = useState(DEFAULT_TASK_DATE_TO);
+    const [priorityLimit, setPriorityLimit] = useState(200);
+    const [priorityDate, setPriorityDate] = useState("");
+    const [taskDateFrom, setTaskDateFrom] = useState("");
+    const [taskDateTo, setTaskDateTo] = useState("");
     const [priorities, setPriorities] = useState(null);
+    const [priorityDateCoverage, setPriorityDateCoverage] = useState(null);
     const [priorityLoading, setPriorityLoading] = useState(false);
     const [priorityError, setPriorityError] = useState(null);
     const priorityRequestRef = useRef({ id: 0, key: null, promise: null });
@@ -145,7 +143,15 @@ export default function PhiPlanningDashboard() {
             params,
         )
             .then((data) => {
-                if (priorityRequestRef.current.id === requestId) setPriorities(data);
+                if (priorityRequestRef.current.id === requestId) {
+                    setPriorities(data);
+                    if (data.date_coverage) {
+                        setPriorityDateCoverage(data.date_coverage);
+                        setTaskDateFrom((current) => current || data.date_coverage.task_date_from || "");
+                        setTaskDateTo((current) => current || data.date_coverage.task_date_to || "");
+                        setPriorityDate((current) => current || data.date_coverage.score_as_of_max || "");
+                    }
+                }
             })
             .catch((err) => {
                 if (priorityRequestRef.current.id === requestId) setPriorityError(err.message);
@@ -313,6 +319,7 @@ export default function PhiPlanningDashboard() {
                     limit={priorityLimit}
                     onLimitChange={setPriorityLimit}
                     planningDate={priorityDate}
+                    dateCoverage={priorityDateCoverage}
                     onPlanningDateChange={(nextDate) => {
                         setPriorityDate(nextDate);
                     }}
@@ -522,6 +529,7 @@ function PrioritiesTab({
     onLimitChange,
     planningDate,
     onPlanningDateChange,
+    dateCoverage,
     dateFrom,
     dateTo,
     onDateRangeChange,
@@ -633,7 +641,7 @@ function PrioritiesTab({
                             type="date"
                             value={dateTo}
                             min={dateFrom || undefined}
-                            max="2026-09-30"
+                            max={dateCoverage?.task_date_to || undefined}
                             onChange={(event) => {
                                 setPageIndex(0);
                                 onDateRangeChange(dateFrom, event.target.value);
@@ -646,13 +654,13 @@ function PrioritiesTab({
                             htmlFor="priority-planning-date"
                             className="block text-xs font-bold text-textMuted mb-1.5 uppercase"
                         >
-                            Score as of (data through 2026-09-30)
+                            Score as of (data through {dateCoverage?.score_as_of_max || "available coverage"})
                         </label>
                         <input
                             id="priority-planning-date"
                             type="date"
                             value={planningDate}
-                            max="2026-09-30"
+                            max={dateCoverage?.score_as_of_max || undefined}
                             onChange={(event) => {
                                 setPageIndex(0);
                                 onPlanningDateChange(event.target.value);
