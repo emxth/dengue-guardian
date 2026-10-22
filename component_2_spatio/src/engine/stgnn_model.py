@@ -45,3 +45,30 @@ class AdaptiveSTGNN(torch.nn.Module):
         # Predict the 3 horizons for each ward
         out = self.linear(last_state)  # Shape: (Num_Wards, 3)
         return F.relu(out)  # ReLU ensures we don't predict negative dengue cases
+
+    def predict_with_uncertainty(self, x, edge_index, n_iter=50):
+        """
+        Executes Monte Carlo Dropout for Uncertainty Quantification.
+        Runs the forward pass N times with dropout enabled to generate a statistical distribution.
+        """
+        self.eval()  # Freezes BatchNorm and standard layers
+
+        # Force only Dropout layers to remain in training mode
+        for m in self.modules():
+            if m.__class__.__name__.startswith("Dropout"):
+                m.train()
+
+        preds = []
+        with torch.no_grad():
+            for _ in range(n_iter):
+                # Run inference and stack the results
+                preds.append(self(x, edge_index).unsqueeze(0))
+
+        # preds_tensor shape: (n_iter, num_wards, forecast_horizon)
+        preds_tensor = torch.cat(preds, dim=0)
+
+        # Calculate mean prediction and standard deviation (uncertainty)
+        mean_preds = preds_tensor.mean(dim=0)
+        std_preds = preds_tensor.std(dim=0)
+
+        return mean_preds, std_preds
