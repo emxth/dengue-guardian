@@ -13,7 +13,7 @@ import {
     AlertCircle,
     CalendarClock,
 } from "lucide-react";
-import PriorityBadge from "./PriorityBadge";
+import TaskPriorityDisplay from "./TaskPriorityDisplay";
 
 /**
  * ReschedulingDetailsTable
@@ -506,7 +506,7 @@ export default function ReschedulingDetailsTable({
 
                                         {/* Priority */}
                                         <td className="p-3 whitespace-nowrap">
-                                            <PriorityBadge level={t.priority_level} />
+                                            <TaskPriorityDisplay task={t} />
                                         </td>
 
                                         {/* Previous PHI */}

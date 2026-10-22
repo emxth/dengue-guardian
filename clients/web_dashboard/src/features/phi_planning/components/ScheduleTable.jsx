@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { User, Users, Search, X, Clock, AlertCircle } from "lucide-react";
-import PriorityBadge from "./PriorityBadge";
+import TaskPriorityDisplay from "./TaskPriorityDisplay";
 
 /**
  * ScheduleTable
@@ -17,11 +17,15 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
     const [searchQuery, setSearchQuery] = useState("");
     const [priorityFilter, setPriorityFilter] = useState("all");
 
+    function displayPriority(task) {
+        return task.scheduling_priority_level || task.priority_level || "Low";
+    }
+
     // Extract sorted unique list of PHIs from tasks
     const phiList = useMemo(() => {
         const phis = new Set();
         tasks.forEach((t) => {
-            if (t.assigned_phi && t.assigned_phi.trim()) {
+            if (t.status === "Scheduled" && t.assigned_phi && t.assigned_phi.trim()) {
                 phis.add(t.assigned_phi.trim());
             }
         });
@@ -34,9 +38,9 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
         let unassigned = 0;
         tasks.forEach((t) => {
             const phi = t.assigned_phi?.trim();
-            if (phi) {
+            if (t.status === "Scheduled" && phi) {
                 counts[phi] = (counts[phi] || 0) + 1;
-            } else {
+            } else if (["Unscheduled", "Pending rescheduling"].includes(t.status) && !phi) {
                 unassigned += 1;
             }
         });
@@ -57,7 +61,7 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
 
             // Priority Filter
             if (priorityFilter !== "all") {
-                if (task.priority_level !== priorityFilter) return false;
+                if (displayPriority(task) !== priorityFilter) return false;
             }
 
             // Search query filter
@@ -86,7 +90,9 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
     const selectedPhiStats = useMemo(() => {
         if (selectedPhi === "all" || selectedPhi === "Unassigned") return null;
 
-        const phiTasks = tasks.filter((t) => t.assigned_phi?.trim() === selectedPhi);
+        const phiTasks = tasks.filter((t) =>
+            t.status === "Scheduled" && t.assigned_phi?.trim() === selectedPhi
+        );
         const validTimes = phiTasks.filter((t) => t.start_time && t.end_time);
 
         let earliestStart = null;
@@ -97,9 +103,9 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
             if (!latestEnd || t.end_time > latestEnd) latestEnd = t.end_time;
         });
 
-        const highCount = phiTasks.filter((t) => t.priority_level === "High").length;
-        const mediumCount = phiTasks.filter((t) => t.priority_level === "Medium").length;
-        const lowCount = phiTasks.filter((t) => t.priority_level === "Low").length;
+        const highCount = phiTasks.filter((task) => displayPriority(task) === "High").length;
+        const mediumCount = phiTasks.filter((task) => displayPriority(task) === "Medium").length;
+        const lowCount = phiTasks.filter((task) => displayPriority(task) === "Low").length;
 
         return {
             total: phiTasks.length,
@@ -323,16 +329,17 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
                             <th className="p-3">Type</th>
                             <th className="p-3">Priority</th>
                             <th className="p-3">Assigned PHI</th>
+                            <th className="p-3">Original Date</th>
                             <th className="p-3">Start</th>
                             <th className="p-3">End</th>
                             <th className="p-3">Status</th>
-                            <th className="p-3">Note</th>
+                            <th className="p-3">Reason / Details</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-borderLight">
                         {filteredTasks.length === 0 ? (
                             <tr>
-                                <td colSpan={9} className="py-12 text-center text-sm text-textMuted">
+                                <td colSpan={10} className="py-12 text-center text-sm text-textMuted">
                                     <AlertCircle size={24} className="mx-auto mb-2 text-textMuted/50" />
                                     <p className="font-semibold text-darkBase">No tasks match the active filters</p>
                                     <p className="text-xs text-textMuted mt-1">
@@ -368,7 +375,7 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
                                         {task.task_type ?? "—"}
                                     </td>
                                     <td className="p-3 whitespace-nowrap">
-                                        <PriorityBadge level={task.priority_level} />
+                                        <TaskPriorityDisplay task={task} />
                                     </td>
                                     <td className="p-3 whitespace-nowrap">
                                         {task.assigned_phi ? (
@@ -387,6 +394,9 @@ export default function ScheduleTable({ tasks = [], emptyLabel }) {
                                         ) : (
                                             <span className="text-textMuted italic text-xs">Unassigned</span>
                                         )}
+                                    </td>
+                                    <td className="p-3 whitespace-nowrap text-xs font-mono text-textMuted">
+                                        {task.task_date || task.notification_date || task.received_date || "—"}
                                     </td>
                                     <td className="p-3 text-darkBase whitespace-nowrap font-mono text-xs">
                                         {task.start_time || "—"}

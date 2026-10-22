@@ -86,13 +86,10 @@ export default function MonthlyDengueTrends() {
                             Dengue Trends by Location
                         </h3>
                         <p className="mt-1 text-xs text-textMuted">
-                            Monthly record counts from synthetic development data.
+                            Monthly record counts
                         </p>
                     </div>
                 </div>
-                <span className="rounded-full border border-riskMedium px-3 py-1 text-xs font-bold text-riskMedium">
-                    Synthetic data
-                </span>
             </header>
 
             <div className="flex flex-wrap items-end gap-3 border-b border-borderLight bg-background/50 px-5 py-4">

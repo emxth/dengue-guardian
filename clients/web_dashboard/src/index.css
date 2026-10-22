@@ -8,3 +8,42 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
+
+.schedule-progress {
+  height: 0.5rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9999px;
+  background: #E2E8F0;
+  color: #0F766E;
+  accent-color: #0F766E;
+}
+
+.schedule-progress:indeterminate {
+  appearance: none;
+  position: relative;
+}
+
+.schedule-progress:indeterminate::-webkit-progress-bar {
+  background: #E2E8F0;
+  border-radius: 9999px;
+}
+
+.schedule-progress:indeterminate::-webkit-progress-value {
+  width: 35%;
+  border-radius: 9999px;
+  background: #0F766E;
+  animation: schedule-progress-indeterminate 1.6s ease-in-out infinite;
+}
+
+.schedule-progress:indeterminate::-moz-progress-bar {
+  width: 35%;
+  border-radius: 9999px;
+  background: #0F766E;
+  animation: schedule-progress-indeterminate 1.6s ease-in-out infinite;
+}
+
+@keyframes schedule-progress-indeterminate {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(310%); }
+}

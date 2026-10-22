@@ -50,7 +50,9 @@ async function apiFetch(path, options = {}) {
         } catch {
             // Non-JSON error body; keep the status code message.
         }
-        throw new Error(detail);
+        const error = new Error(detail);
+        error.status = response.status;
+        throw error;
     }
 
     try {
@@ -153,6 +155,26 @@ export async function createSchedule(planningDate) {
     });
 }
 
+/** GET the saved plan for a planning date without regenerating it. */
+export async function fetchSchedule(planningDate) {
+    if (!planningDate || !/^\d{4}-\d{2}-\d{2}$/.test(planningDate)) {
+        throw new Error("Planning date must be in YYYY-MM-DD format.");
+    }
+    const query = new URLSearchParams({ planning_date: planningDate });
+    return apiFetch(`/api/v1/planning/schedule?${query.toString()}`);
+}
+
+/** Persist MOH review confirmation. This does not deliver the plan to PHIs. */
+export async function confirmSchedule(planningDate) {
+    if (!planningDate || !/^\d{4}-\d{2}-\d{2}$/.test(planningDate)) {
+        throw new Error("Planning date must be in YYYY-MM-DD format.");
+    }
+    return apiFetch("/api/v1/planning/schedule/confirm", {
+        method: "POST",
+        body: JSON.stringify({ planning_date: planningDate }),
+    });
+}
+
 /**
  * POST /api/v1/planning/reschedule
  * Simulate rescheduling when a PHI becomes unavailable.
@@ -221,5 +243,54 @@ export async function createInspectionTask(task) {
     return apiFetch("/api/v1/planning/tasks", {
         method: "POST",
         body: JSON.stringify(task),
+    });
+}
+
+/**
+ * PATCH /api/v1/planning/tasks/{taskId}/status
+ * Persist field execution status separately from appointment status.
+ */
+export async function updatePlanningTaskStatus(taskId, taskStatus) {
+    if (!taskId || typeof taskId !== "string") {
+        throw new Error("A planning task ID is required.");
+    }
+    if (!["Pending", "In Progress", "Completed", "Cancelled"].includes(taskStatus)) {
+        throw new Error("Select a valid task execution status.");
+    }
+    return apiFetch(`/api/v1/planning/tasks/${encodeURIComponent(taskId)}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ task_status: taskStatus }),
+    });
+}
+
+/**
+ * GET /api/v1/planning/phis/availability
+ * Read authoritative PHI availability for one planning date.
+ */
+export async function fetchPhiAvailability(planningDate) {
+    if (!planningDate || !/^\d{4}-\d{2}-\d{2}$/.test(planningDate)) {
+        throw new Error("Planning date must be in YYYY-MM-DD format.");
+    }
+    const query = new URLSearchParams({ planning_date: planningDate });
+    return apiFetch(`/api/v1/planning/phis/availability?${query.toString()}`);
+}
+
+/**
+ * PUT /api/v1/planning/phis/{phiId}/availability
+ * Persist availability for the selected date only.
+ */
+export async function setPhiAvailability(planningDate, phiId, availability) {
+    if (!planningDate || !/^\d{4}-\d{2}-\d{2}$/.test(planningDate)) {
+        throw new Error("Planning date must be in YYYY-MM-DD format.");
+    }
+    if (!phiId || typeof phiId !== "string") {
+        throw new Error("A PHI identifier is required.");
+    }
+    if (!["Available", "Unavailable"].includes(availability)) {
+        throw new Error("Availability must be Available or Unavailable.");
+    }
+    return apiFetch(`/api/v1/planning/phis/${encodeURIComponent(phiId)}/availability`, {
+        method: "PUT",
+        body: JSON.stringify({ planning_date: planningDate, availability }),
     });
 }

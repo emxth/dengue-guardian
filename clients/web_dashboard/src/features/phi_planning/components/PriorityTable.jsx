@@ -1,4 +1,4 @@
-import PriorityBadge from "./PriorityBadge";
+import TaskPriorityDisplay from "./TaskPriorityDisplay";
 
 /**
  * PriorityTable
@@ -85,7 +85,7 @@ export default function PriorityTable({
 
                                 {/* Priority Badge */}
                                 <td className="p-3 whitespace-nowrap">
-                                    <PriorityBadge level={row.priority_level} />
+                                    <TaskPriorityDisplay task={row} />
                                 </td>
 
                                 {/* Score */}

@@ -12,12 +12,17 @@ import {
     X,
     PlusCircle,
     BarChart3,
+    ClipboardCheck,
 } from "lucide-react";
 
 import {
     fetchPriorities,
     createSchedule,
+    fetchSchedule,
+    confirmSchedule,
     reschedule,
+    fetchPhiAvailability,
+    setPhiAvailability,
 } from "../api/planningApi";
 import PriorityTable from "../components/PriorityTable";
 import ScheduleTable from "../components/ScheduleTable";
@@ -68,15 +73,46 @@ export default function PhiPlanningDashboard() {
     const [originalSchedulePlan, setOriginalSchedulePlan] = useState(null);
     const [scheduleLoading, setScheduleLoading] = useState(false);
     const [scheduleError, setScheduleError] = useState(null);
+    const [confirmationLoading, setConfirmationLoading] = useState(false);
 
     // ── Reschedule state ──────────────────────────────────────────────────────
     const [rescheduleDate, setRescheduleDate] = useState(DEFAULT_DATE);
     const [unavailablePhi, setUnavailablePhi] = useState("");
-    const [assumeAllPending, setAssumeAllPending] = useState(false);
     const [rescheduleResult, setRescheduleResult] = useState(null);
     const [rescheduleLoading, setRescheduleLoading] = useState(false);
     const [rescheduleError, setRescheduleError] = useState(null);
     const [showConfirm, setShowConfirm] = useState(false);
+
+    useEffect(() => {
+        let active = true;
+        fetchSchedule(scheduleDate)
+            .then((data) => {
+                if (!active) return;
+                setScheduleResult(data);
+                setOriginalSchedulePlan(data.tasks ?? []);
+                setRescheduleDate(data.planning_date);
+                const assignedPhis = [...new Set(
+                    (data.tasks ?? [])
+                        .map((task) => task.assigned_phi?.trim())
+                        .filter(Boolean)
+                )];
+                setUnavailablePhi(assignedPhis[0] ?? "");
+                setScheduleError(null);
+            })
+            .catch((err) => {
+                if (!active) return;
+                if (err.status === 404) {
+                    setScheduleResult(null);
+                    setOriginalSchedulePlan(null);
+                    setScheduleError(null);
+                } else {
+                    setScheduleError(err.message);
+                }
+            });
+        return () => {
+            active = false;
+        };
+    }, [scheduleDate]);
 
     // ─── Handlers ─────────────────────────────────────────────────────────────
 
@@ -170,11 +206,35 @@ export default function PhiPlanningDashboard() {
                 setUnavailablePhi(assignedPhis[0] ?? "");
             }
         } catch (err) {
+            setScheduleResult(null);
+            setOriginalSchedulePlan(null);
+            setRescheduleResult(null);
+            setUnavailablePhi("");
             setScheduleError(err.message);
         } finally {
             setScheduleLoading(false);
         }
     }, [scheduleLoading, scheduleDate]);
+
+    const handleConfirmSchedule = useCallback(async (date) => {
+        setConfirmationLoading(true);
+        setScheduleError(null);
+        setRescheduleError(null);
+        try {
+            const response = await confirmSchedule(date);
+            setScheduleResult((current) => current?.planning_date === date
+                ? { ...current, schedule_state: response.schedule_state }
+                : current);
+            setRescheduleResult((current) => current?.planning_date === date
+                ? { ...current, schedule_state: response.schedule_state }
+                : current);
+        } catch (err) {
+            setScheduleError(err.message);
+            setRescheduleError(err.message);
+        } finally {
+            setConfirmationLoading(false);
+        }
+    }, []);
 
     const handleRescheduleConfirmed = useCallback(async () => {
         setShowConfirm(false);
@@ -189,15 +249,16 @@ export default function PhiPlanningDashboard() {
             const data = await reschedule(
                 rescheduleDate,
                 unavailablePhi,
-                assumeAllPending
+                false
             );
             setRescheduleResult(data);
         } catch (err) {
+            setRescheduleResult(null);
             setRescheduleError(err.message);
         } finally {
             setRescheduleLoading(false);
         }
-    }, [rescheduleLoading, rescheduleDate, unavailablePhi, assumeAllPending, scheduleResult]);
+    }, [rescheduleLoading, rescheduleDate, unavailablePhi, scheduleResult]);
 
     // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -209,13 +270,8 @@ export default function PhiPlanningDashboard() {
                     <h3 className="text-lg font-bold text-darkBase">
                         PHI Inspection Planning & Operations
                     </h3>
-                    <p className="text-sm text-textMuted mt-0.5">
-                        Research prototype using synthetic data and provisional priorities. Production Component 2 output compatibility is not confirmed.
-                    </p>
                 </div>
-                <span className="bg-surface text-primary border border-primary px-3.5 py-1.5 rounded-full text-xs font-bold">
-                    Development Data
-                </span>
+
             </div>
             {/* Tab Navigation */}
             <div className="flex flex-wrap gap-1.5 border-b border-borderLight pb-0">
@@ -287,6 +343,8 @@ export default function PhiPlanningDashboard() {
                     loading={scheduleLoading}
                     error={scheduleError}
                     onGenerate={handleGenerateSchedule}
+                    onConfirmSchedule={handleConfirmSchedule}
+                    confirmationLoading={confirmationLoading}
                 />
             )}
 
@@ -296,8 +354,6 @@ export default function PhiPlanningDashboard() {
                     date={rescheduleDate}
                     unavailablePhi={unavailablePhi}
                     onPhiChange={setUnavailablePhi}
-                    assumeAllPending={assumeAllPending}
-                    onAssumeChange={setAssumeAllPending}
                     result={rescheduleResult}
                     originalTasks={
                         rescheduleResult?.original_tasks ||
@@ -309,6 +365,8 @@ export default function PhiPlanningDashboard() {
                     showConfirm={showConfirm}
                     onRequestConfirm={() => setShowConfirm(true)}
                     onConfirm={handleRescheduleConfirmed}
+                    onConfirmSchedule={handleConfirmSchedule}
+                    confirmationLoading={confirmationLoading}
                     onCancelConfirm={() => setShowConfirm(false)}
                     scheduleExists={
                         scheduleResult?.planning_date === rescheduleDate ||
@@ -337,7 +395,7 @@ function OverviewTab({ scheduleResult, priorities, onLoadPriorities, onGenerateS
         {
             num: 1,
             title: "Load Inspection Priorities",
-            desc: "Retrieve provisional priority scores for dengue cases and citizen complaints.",
+            desc: "Retrieve priority scores for dengue cases and citizen complaints.",
             action: "Go to Priorities →",
             onClick: onLoadPriorities,
         },
@@ -357,7 +415,7 @@ function OverviewTab({ scheduleResult, priorities, onLoadPriorities, onGenerateS
         {
             num: 4,
             title: "Inspect Scheduling Result",
-            desc: "Review assigned PHIs, time slots, and any unscheduled tasks.",
+            desc: "Review assigned PHIs and time slots; open Pending for Later to see unassigned work.",
             action: null,
         },
         {
@@ -419,9 +477,13 @@ function OverviewTab({ scheduleResult, priorities, onLoadPriorities, onGenerateS
                     <div className="space-y-4">
                         <PlanningSummaryCards
                             totalTasks={scheduleResult.total_tasks}
+                            newTasks={scheduleResult.new_tasks}
                             scheduledTasks={scheduleResult.scheduled_tasks}
                             unscheduledTasks={scheduleResult.unscheduled_tasks}
+                            completedTasks={scheduleResult.completed_tasks}
+                            cancelledTasks={scheduleResult.cancelled_tasks}
                             solverStatus={scheduleResult.solver_status}
+                            carriedForwardTasks={scheduleResult.carried_forward_tasks}
                         />
                         <p className="text-xs text-textMuted">
                             Planning date: <span className="font-semibold text-darkBase">{scheduleResult.planning_date}</span>
@@ -946,7 +1008,31 @@ function PrioritiesTab({
 
 // ── Schedule Tab ──────────────────────────────────────────────────────────────
 
-function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate }) {
+function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate, onConfirmSchedule, confirmationLoading }) {
+    const [scheduleViewState, setScheduleViewState] = useState({
+        date,
+        view: "appointments",
+    });
+    const scheduleView = scheduleViewState.date === date
+        ? scheduleViewState.view
+        : "appointments";
+    const scheduleState = result?.schedule_state ?? {};
+    const reschedulingBlocked = scheduleState.rescheduling_required
+        && !scheduleState.rescheduling_processed;
+    const appointments = (result?.tasks ?? []).filter((task) =>
+        task.assigned_phi && task.start_time && task.end_time
+        && ["Scheduled", "In Progress", "Completed"].includes(task.status)
+    );
+    const caseAppointments = appointments.filter(
+        (task) => task.task_type === "Dengue Case Inspection"
+    ).length;
+    const complaintAppointments = appointments.filter(
+        (task) => task.task_type === "Citizen Complaint"
+    ).length;
+    const pendingQueue = (result?.tasks ?? []).filter((task) =>
+        ["Unscheduled", "Pending rescheduling"].includes(task.status)
+        && task.task_status === "Pending"
+    );
     return (
         <div className="space-y-5">
             {/* Controls */}
@@ -966,9 +1052,6 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate })
                         required
                         className="border border-borderLight rounded-lg px-3 py-2 text-sm text-darkBase bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
-                    <p className="text-xs text-textMuted mt-1">
-                        Availability is validated by the backend for this date.
-                    </p>
                 </div>
 
                 <button
@@ -986,50 +1069,128 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate })
                 </button>
             </div>
 
+            {loading && (
+                <div
+                    className="rounded-lg border border-primary/20 bg-surface px-4 py-3"
+                    role="status"
+                    aria-live="polite"
+                >
+                    <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                        <span className="font-semibold text-darkBase">
+                            Building the {date} schedule
+                        </span>
+                        <span className="text-textMuted">Cases · complaints · PHI capacity</span>
+                    </div>
+                    <progress
+                        className="schedule-progress block w-full"
+                        aria-label={`Generating schedule for ${date}`}
+                    />
+                    <p className="mt-2 text-[11px] text-textMuted">
+                        Matching tasks to their location areas and fitting appointments into available slots.
+                    </p>
+                </div>
+            )}
+
             {/* Error */}
             {error && <ApiError message={error} />}
 
             {/* Result */}
             {result && (
                 <div className="space-y-4">
-                    {/* Success notice */}
-                    <div className="flex items-center gap-3 bg-mintSurface border border-riskCleared rounded-xl px-4 py-3">
-                        <CheckCircle2 size={18} className="text-riskCleared shrink-0" />
-                        <p className="text-sm text-darkBase">
-                            <span className="font-bold">Schedule generated successfully</span> for{" "}
-                            {result.planning_date} (Status:{" "}
-                            <span className="font-bold text-primary">
-                                {result.solver_status}
-                            </span>)
+                    {error ? (
+                        <div className="rounded-md border border-riskMedium bg-amber-50 px-4 py-3 text-sm text-darkBase" role="status">
+                            Showing the last saved schedule for {result.planning_date}; the latest request failed.
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-borderLight bg-background px-4 py-3">
+                            <p className="text-sm text-darkBase">
+                                <span className="font-bold">
+                                    {scheduleState.confirmed ? "Schedule confirmed" : "Schedule ready for review"}
+                                </span>{" "}
+                                · {result.planning_date} · {result.solver_status}
+                            </p>
+                            {!scheduleState.confirmed && (
+                                <button
+                                    type="button"
+                                    onClick={() => onConfirmSchedule(date)}
+                                    disabled={confirmationLoading || reschedulingBlocked}
+                                    title={reschedulingBlocked ? "Adaptive rescheduling must be completed first." : "Confirm this schedule for the selected date."}
+                                    className="rounded-md bg-primary px-3 py-2 text-xs font-bold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {confirmationLoading ? "Confirming…" : "Confirm Schedule"}
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    {reschedulingBlocked && (
+                        <p className="text-xs font-semibold text-riskMedium">
+                            Adaptive rescheduling is required before this schedule can be confirmed.
                         </p>
-                    </div>
+                    )}
 
                     {/* KPI cards */}
                     <PlanningSummaryCards
                         totalTasks={result.total_tasks}
+                        newTasks={result.new_tasks}
                         scheduledTasks={result.scheduled_tasks}
                         unscheduledTasks={result.unscheduled_tasks}
+                        completedTasks={result.completed_tasks}
+                        cancelledTasks={result.cancelled_tasks}
                         solverStatus={result.solver_status}
+                        carriedForwardTasks={result.carried_forward_tasks}
                     />
-                    <p className="text-xs text-textMuted">
-                        Synthetic research schedule. Assignments, times, and
-                        unscheduled reasons below are returned by the backend.
-                        This input batch is not a live pending-task queue.
-                    </p>
-
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-borderLight pb-3">
+                        <div className="flex items-center gap-1 rounded-lg border border-borderLight bg-background p-1">
+                            <button
+                                type="button"
+                                onClick={() => setScheduleViewState({ date, view: "appointments" })}
+                                aria-pressed={scheduleView === "appointments"}
+                                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-bold ${
+                                    scheduleView === "appointments"
+                                        ? "bg-primary text-surface"
+                                        : "text-textMuted hover:bg-surface hover:text-darkBase"
+                                }`}
+                            >
+                                <CalendarDays size={14} />
+                                PHI Appointments ({appointments.length})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setScheduleViewState({ date, view: "pending" })}
+                                aria-pressed={scheduleView === "pending"}
+                                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-bold ${
+                                    scheduleView === "pending"
+                                        ? "bg-primary text-surface"
+                                        : "text-textMuted hover:bg-surface hover:text-darkBase"
+                                }`}
+                            >
+                                <ClipboardCheck size={14} />
+                                Pending for Later ({pendingQueue.length})
+                            </button>
+                        </div>
+                        {scheduleView === "pending" && (
+                            <p className="text-xs text-textMuted">
+                                Unassigned Pending tasks remain in the queue for a later planning date.
+                            </p>
+                        )}
+                    </div>
                     {/* Task table */}
                     <div className="bg-surface rounded-xl border border-borderLight shadow-sm overflow-hidden">
                         <div className="px-5 py-4 border-b border-borderLight flex items-center justify-between">
                             <h4 className="text-sm font-bold text-darkBase">
-                                Scheduled Task Details
+                                {scheduleView === "appointments" ? "PHI Appointments" : "Pending Tasks for Later Dates"}
                             </h4>
                             <span className="text-xs text-textMuted">
-                                {result.tasks?.length ?? 0} rows
+                                {scheduleView === "appointments"
+                                    ? `${appointments.length} appointments · ${caseAppointments} cases · ${complaintAppointments} complaints`
+                                    : `${pendingQueue.length} rows`}
                             </span>
                         </div>
                         <ScheduleTable
-                            tasks={result.tasks ?? []}
-                            emptyLabel="No tasks were returned in the schedule response."
+                            tasks={scheduleView === "appointments" ? appointments : pendingQueue}
+                            emptyLabel={scheduleView === "appointments"
+                                ? "No PHI appointments were assigned for this date."
+                                : "There are no unassigned Pending tasks waiting for a later date."}
                         />
                     </div>
                 </div>
@@ -1048,8 +1209,6 @@ function RescheduleTab({
     date,
     unavailablePhi,
     onPhiChange,
-    assumeAllPending,
-    onAssumeChange,
     result,
     originalTasks = [],
     loading,
@@ -1057,14 +1216,88 @@ function RescheduleTab({
     showConfirm,
     onRequestConfirm,
     onConfirm,
+    onConfirmSchedule,
+    confirmationLoading,
     onCancelConfirm,
     scheduleExists,
 }) {
+    const [availabilityResult, setAvailabilityResult] = useState({
+        planningDate: "",
+        phis: [],
+        error: "",
+    });
+    const availabilityLoading = availabilityResult.planningDate !== date;
+    const availabilityError = availabilityResult.planningDate === date
+        ? availabilityResult.error
+        : "";
+    const phiAvailability = availabilityResult.planningDate === date
+        ? availabilityResult.phis
+        : [];
+    const [availabilitySaving, setAvailabilitySaving] = useState(false);
+
+    useEffect(() => {
+        let active = true;
+        fetchPhiAvailability(date)
+            .then((response) => {
+                if (active) {
+                    setAvailabilityResult({
+                        planningDate: date,
+                        phis: response.phis ?? [],
+                        error: "",
+                    });
+                }
+            })
+            .catch((requestError) => {
+                if (active) {
+                    setAvailabilityResult({
+                        planningDate: date,
+                        phis: [],
+                        error: requestError.message,
+                    });
+                }
+            });
+        return () => {
+            active = false;
+        };
+    }, [date, result?.schedule_state?.updated_at]);
+
+    async function restorePhiAvailability(phiId) {
+        setAvailabilitySaving(true);
+        try {
+            await setPhiAvailability(date, phiId, "Available");
+            const response = await fetchPhiAvailability(date);
+            setAvailabilityResult({
+                planningDate: date,
+                phis: response.phis ?? [],
+                error: "",
+            });
+        } catch (requestError) {
+            setAvailabilityResult((current) => ({
+                ...current,
+                planningDate: date,
+                error: requestError.message,
+            }));
+        } finally {
+            setAvailabilitySaving(false);
+        }
+    }
+
     const scheduledPhis = [...new Set(
         originalTasks
             .map((task) => task.assigned_phi?.trim())
             .filter(Boolean)
     )];
+    const affectedResults = (result?.tasks ?? []).filter(
+        (task) => task.previous_assigned_phi === result?.unavailable_phi
+    );
+    const affectedSummary = {
+        affected_tasks: affectedResults.length,
+        reassigned_tasks: affectedResults.filter((task) => task.reassignment_classification === "Reassigned").length,
+        deferred_tasks: affectedResults.filter((task) => task.reassignment_classification === "Deferred").length,
+        remaining_unscheduled_tasks: affectedResults.filter((task) => task.reassignment_classification === "Unscheduled").length,
+        unchanged_tasks: affectedResults.filter((task) => task.reassignment_classification === "Unchanged").length,
+        protected_tasks: affectedResults.filter((task) => ["Completed", "In Progress"].includes(task.task_status)).length,
+    };
 
     return (
         <div className="space-y-5">
@@ -1135,28 +1368,6 @@ function RescheduleTab({
                     </div>
                 </div>
 
-                {/* Assume all pending toggle */}
-                <div className="flex items-start gap-3 p-3 bg-background rounded-lg border border-borderLight">
-                    <input
-                        id="assume-all-pending"
-                        type="checkbox"
-                        checked={assumeAllPending}
-                        onChange={(e) => onAssumeChange(e.target.checked)}
-                        className="mt-0.5 accent-primary w-4 h-4 rounded"
-                    />
-                    <div>
-                        <label
-                            htmlFor="assume-all-pending"
-                            className="text-sm font-bold text-darkBase cursor-pointer"
-                        >
-                            Assume all tasks are pending
-                        </label>
-                        <p className="text-xs text-textMuted mt-0.5">
-                            The API does not accept per-task execution statuses. Enable this only when explicitly assuming every task is pending; otherwise the backend may reject rescheduling because execution status is missing.
-                        </p>
-                    </div>
-                </div>
-
                 <button
                     id="btn-request-reschedule"
                     onClick={onRequestConfirm}
@@ -1175,6 +1386,42 @@ function RescheduleTab({
                     {loading ? "Rescheduling…" : "Reschedule Tasks"}
                 </button>
             </div>
+
+            <section className="rounded-lg border border-borderLight bg-surface px-4 py-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-borderLight pb-2">
+                    <h4 className="text-sm font-bold text-darkBase">Availability for {date}</h4>
+                    <span className="text-xs text-textMuted">Date-specific</span>
+                </div>
+                {availabilityError && <ApiError message={availabilityError} />}
+                {availabilityLoading ? (
+                    <p className="py-3 text-xs text-textMuted">Loading availability…</p>
+                ) : phiAvailability.length === 0 ? (
+                    <p className="py-3 text-xs text-textMuted">No PHI availability records for this date.</p>
+                ) : (
+                    <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {phiAvailability.map((phi) => (
+                            <div key={phi.phi_id} className="flex items-center justify-between gap-3 border-b border-borderLight py-2 text-xs">
+                                <span className="font-semibold text-darkBase">{phi.phi_id}</span>
+                                <div className="flex items-center gap-2">
+                                    <span className={phi.availability === "Unavailable" ? "font-bold text-riskHigh" : "text-riskCleared"}>
+                                        {phi.availability}
+                                    </span>
+                                    {phi.availability === "Unavailable" && (
+                                        <button
+                                            type="button"
+                                            disabled={availabilitySaving}
+                                            onClick={() => restorePhiAvailability(phi.phi_id)}
+                                            className="rounded border border-borderLight px-2 py-1 font-semibold text-primary disabled:opacity-50"
+                                        >
+                                            Restore Available
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
 
             {/* Confirmation dialog */}
             {showConfirm && (
@@ -1233,12 +1480,35 @@ function RescheduleTab({
 
                     {/* Transparent task redistribution table with KPI cards and filters */}
                     <ReschedulingDetailsTable
-                        tasks={result.tasks ?? []}
+                        tasks={affectedResults}
                         originalTasks={result.original_tasks ?? originalTasks ?? []}
                         unavailablePhi={result.unavailable_phi}
                         planningDate={result.planning_date}
-                        summary={result}
+                        summary={affectedSummary}
                     />
+                    {!result.schedule_state?.confirmed && (
+                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-borderLight bg-background px-4 py-3">
+                            <p className="text-sm text-darkBase">
+                                <span className="font-bold">Revised schedule ready for review</span>
+                                {result.schedule_state?.rescheduling_processed
+                                    ? " · Required rescheduling processed"
+                                    : ""}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => onConfirmSchedule(result.planning_date)}
+                                disabled={confirmationLoading || result.schedule_state?.rescheduling_required}
+                                className="rounded-md bg-primary px-3 py-2 text-xs font-bold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {confirmationLoading ? "Confirming…" : "Confirm Revised Schedule"}
+                            </button>
+                        </div>
+                    )}
+                    {result.schedule_state?.confirmed && (
+                        <p className="rounded-md border border-riskCleared bg-mintSurface px-4 py-3 text-sm font-bold text-darkBase">
+                            Revised schedule confirmed for {result.planning_date}.
+                        </p>
+                    )}
                 </div>
             )}
 

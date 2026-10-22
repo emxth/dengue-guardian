@@ -3,6 +3,7 @@ import {
     createInspectionTask,
     fetchPlanningLocations,
 } from "../api/planningApi";
+import TaskPriorityDisplay from "./TaskPriorityDisplay";
 
 const INITIAL_FORM = {
     task_type: "Dengue Case Inspection",
@@ -149,10 +150,6 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                 <h3 className="text-lg font-bold text-darkBase">
                     Create New Inspection Task
                 </h3>
-                <p className="mt-1 text-sm text-textMuted">
-                    Synthetic research prototype. Priority uses backend risk, area activity,
-                    waiting time, and explicit task urgency.
-                </p>
             </div>
 
             {error && (
@@ -171,9 +168,11 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                 >
                     <p className="font-bold">Inspection task created successfully.</p>
                     <p>Task ID: {success.scenario_task_id}</p>
-                    <p>
-                        Priority: {success.priority_level} ({success.priority_score})
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span>Priority:</span>
+                        <TaskPriorityDisplay task={success} />
+                        <span>({success.priority_score ?? "No numeric score"})</span>
+                    </div>
                     {success.priority_reason && (
                         <p className="text-xs text-textMuted">
                             {success.priority_reason}
@@ -283,11 +282,6 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                             <p className="mt-1 text-sm font-semibold text-textMuted" aria-live="polite">
                                 Component 2 level: {selectedRiskLevel}
                             </p>
-                            <p className="mt-1 text-xs text-textMuted">
-                                Development dataset context only. The backend
-                                calculates the priority. Production Component 2
-                                output compatibility has not been confirmed.
-                            </p>
                             <label
                                 htmlFor="new-task-case-urgency"
                                 className={`${LABEL_CLASS} mt-4`}
@@ -374,11 +368,6 @@ export default function NewInspectionTaskForm({ onTaskCreated }) {
                     {submitting ? "Creating Task..." : "Create Inspection Task"}
                 </button>
 
-                <p className="text-xs text-textMuted">
-                    Synthetic research prototype only. Priority scores and
-                    schedules are provisional and are not operational PHI
-                    recommendations.
-                </p>
             </form>
         </section>
     );
