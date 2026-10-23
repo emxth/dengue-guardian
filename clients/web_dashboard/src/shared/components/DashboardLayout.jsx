@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Cpu, Users, LogOut, ClipboardList } from "lucide-react";
+import { Cpu, Users, LogOut, ClipboardList, FlaskConical } from "lucide-react";
 import logo from "../../assets/DengueGuardian.jpg";
 
 export default function DashboardLayout() {
@@ -71,6 +71,18 @@ export default function DashboardLayout() {
                             >
                                 <ClipboardList size={18} />
                                 PHI Inspection Planning
+                            </NavLink>
+                            <NavLink
+                                to="/dashboard/notification-test"
+                                className={({ isActive }) =>
+                                    `flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-bold transition ${isActive
+                                        ? "bg-amber-50 text-amber-800 border-l-4 border-riskMedium"
+                                        : "text-textMuted hover:bg-background"
+                                    }`
+                                }
+                            >
+                                <FlaskConical size={18} />
+                                Notification Test
                             </NavLink>
                         </nav>
                     </div>
