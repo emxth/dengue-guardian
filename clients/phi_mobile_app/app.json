@@ -21,7 +21,8 @@
       "favicon": "./assets/DengueGuardian.jpg"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-secure-store"
     ]
   }
 }

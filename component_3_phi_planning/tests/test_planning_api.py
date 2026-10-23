@@ -1689,6 +1689,12 @@ def test_schedule_confirmation_requires_rescheduling_and_is_idempotent(
     assert body["schedule_state"]["released_to_phis"] is False
     task = body["tasks"][0]
     assigned_phi = task["assigned_phi"]
+    from component_3_phi_planning.api import schedule_release_store
+    monkeypatch.setattr(
+        schedule_release_store,
+        "publish_confirmed_schedule",
+        lambda _date, _tasks, _confirmed_at: {assigned_phi: 1},
+    )
 
     unavailable = client.put(
         f"/api/v1/planning/phis/{assigned_phi}/availability",
@@ -1742,7 +1748,9 @@ def test_schedule_confirmation_requires_rescheduling_and_is_idempotent(
     )
     assert confirmed.status_code == repeated.status_code == 200
     assert confirmed.json()["schedule_state"]["confirmed"] is True
+    assert confirmed.json()["schedule_state"]["released_to_phis"] is True
     assert confirmed.json()["delivered_to_phis"] is False
+    assert confirmed.json()["released_task_count"] == 1
     assert repeated.json()["schedule_state"]["confirmed_at"] == confirmed.json()["schedule_state"]["confirmed_at"]
 
 

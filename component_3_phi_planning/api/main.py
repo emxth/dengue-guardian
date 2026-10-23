@@ -5,6 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from component_3_phi_planning.api.routes.planning import router as planning_router
+from component_3_phi_planning.api.routes.phi_mobile import router as phi_mobile_router
+from component_3_phi_planning.api.routes.prevention_notification_test import router as prevention_notification_test_router
 
 app = FastAPI(
     title="C3 PHI Planning API",
@@ -27,7 +29,7 @@ app.add_middleware(
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH"],
-    allow_headers=["Content-Type", "Accept"],
+    allow_headers=["Content-Type", "Accept", "Authorization", "Idempotency-Key"],
 )
 
 
@@ -42,3 +44,5 @@ def health_check():
 
 
 app.include_router(planning_router)
+app.include_router(phi_mobile_router)
+app.include_router(prevention_notification_test_router)

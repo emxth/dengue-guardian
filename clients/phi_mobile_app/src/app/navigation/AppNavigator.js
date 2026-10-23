@@ -5,14 +5,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { DengueGuardianColors } from "../../shared/theme/colors";
 
-import EdgeCaptureScreen from "../../features/edge_ai_capture/screens/EdgeCaptureScreen";
-import SpatioMapScreen from "../../features/spatio_mapping/screens/SpatioMapScreen";
-import InspectionScreen from "../../features/phi_inspection/screens/InspectionScreen";
-import PreventionScreen from "../../features/prevention/screens/PreventionScreen";
+import PhiScheduleScreen from "../../features/phi_inspection/screens/PhiScheduleScreen";
 
 const Tab = createBottomTabNavigator();
 
-export default function AppNavigator() {
+export default function AppNavigator({ token, phi, onLogout }) {
   const insets = useSafeAreaInsets();
 
   // Ensures tabs never clip under Android navigation buttons (back/home/recents) or iOS home bar
@@ -79,12 +76,6 @@ export default function AppNavigator() {
             paddingVertical: 2,
           },
           tabBarIcon: ({ focused, color, size }) => {
-            const icons = {
-              "Edge AI": focused ? "camera" : "camera-outline",
-              "Risk Map": focused ? "map" : "map-outline",
-              "Inspect": focused ? "clipboard" : "clipboard-outline",
-              "Prevention": focused ? "shield-checkmark" : "shield-checkmark-outline",
-            };
             return (
               <View
                 style={{
@@ -96,45 +87,26 @@ export default function AppNavigator() {
                   justifyContent: "center",
                 }}
               >
-                <Ionicons name={icons[route.name]} size={20} color={color} />
+                <Ionicons name={focused ? "calendar" : "calendar-outline"} size={20} color={color} />
               </View>
             );
           },
         })}
       >
         <Tab.Screen
-          name="Edge AI"
-          component={EdgeCaptureScreen}
+          name="My Schedule"
           options={{
-            headerTitle: "Edge AI Risk Node",
-            tabBarLabel: "Edge AI",
+            headerTitle: "My Confirmed PHI Schedule",
+            tabBarIcon: ({ focused, color, size }) => (
+              <View style={{ alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name={focused ? "calendar" : "calendar-outline"} size={size} color={color} />
+              </View>
+            ),
           }}
-        />
-        <Tab.Screen
-          name="Risk Map"
-          component={SpatioMapScreen}
-          options={{
-            headerTitle: "Spatio-Temporal Map",
-            tabBarLabel: "Risk Map",
-          }}
-        />
-        <Tab.Screen
-          name="Inspect"
-          component={InspectionScreen}
-          options={{
-            headerTitle: "PHI Premise Inspection",
-            tabBarLabel: "Inspect",
-          }}
-        />
-        <Tab.Screen
-          name="Prevention"
-          component={PreventionScreen}
-          options={{
-            headerTitle: "Prevention Strategy",
-            tabBarLabel: "Prevention",
-          }}
-        />
+        >
+          {() => <PhiScheduleScreen token={token} phi={phi} onLogout={onLogout} />}
+        </Tab.Screen>
       </Tab.Navigator>
     </NavigationContainer>
   );
-}
+}

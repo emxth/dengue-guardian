@@ -2,6 +2,7 @@
 """Planning endpoints for the C3 PHI Planning API."""
 
 import csv
+import logging
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field
 from component_3_phi_planning.api import task_store
 from component_3_phi_planning.api import availability_store
 from component_3_phi_planning.api import plan_store
+from component_3_phi_planning.api import schedule_release_store
 from component_3_phi_planning.config import DEFAULT_PLANNING_DATE
 from component_3_phi_planning.api.task_store import (
     NewInspectionTask,
@@ -45,6 +47,7 @@ from component_3_phi_planning.rescheduling.phi_rescheduler import (
 
 
 router = APIRouter(prefix="/api/v1/planning", tags=["Planning"])
+logger = logging.getLogger(__name__)
 
 COMPONENT_DIR = Path(__file__).resolve().parents[2]
 DATABASE_PATH = (
@@ -966,7 +969,7 @@ def get_saved_schedule(planning_date: date = Query(...)):
 
 @router.post("/schedule/confirm")
 def confirm_schedule(request: ScheduleConfirmationRequest):
-    """Persist MOH review confirmation; this does not deliver a plan to PHIs."""
+    """Confirm and publish PHI-filtered schedules to the mobile API."""
     plan_path = API_OUTPUT_DIR / f"phi_plan_{request.planning_date.isoformat()}.csv"
     if not plan_path.is_file():
         raise HTTPException(status_code=404, detail="Generate a schedule before confirming it.")
@@ -981,13 +984,31 @@ def confirm_schedule(request: ScheduleConfirmationRequest):
             ),
         )
 
+    try:
+        with plan_path.open("r", newline="", encoding="utf-8-sig") as file:
+            tasks = list(csv.DictReader(file))
+        released_counts = schedule_release_store.publish_confirmed_schedule(
+            request.planning_date.isoformat(),
+            tasks,
+            state.get("confirmed_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
+        )
+    except Exception as exc:
+        logger.exception(
+            "Could not publish the confirmed PHI schedule for %s",
+            request.planning_date.isoformat(),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Could not publish PHI schedules; confirmation was not completed.",
+        ) from exc
+
     state = plan_store.save_schedule_state(
         request.planning_date,
         {
             "status": "confirmed",
             "confirmed": True,
             "confirmed_at": state.get("confirmed_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
-            "released_to_phis": False,
+            "released_to_phis": True,
         },
     )
     return {
@@ -995,6 +1016,8 @@ def confirm_schedule(request: ScheduleConfirmationRequest):
         "planning_date": request.planning_date.isoformat(),
         "schedule_state": state,
         "delivered_to_phis": False,
+        "released_phi_count": len(released_counts),
+        "released_task_count": sum(released_counts.values()),
     }
 
 
@@ -1214,6 +1237,8 @@ def create_schedule(request: ScheduleRequest):
             task_id = row.get("scenario_task_id") or row.get("source_id")
             registry_by_id[task_id] = row
 
+        if previous_state.get("released_to_phis"):
+            schedule_release_store.revoke_released_schedule(planning_date)
         save_task_records(list(registry_by_id.values()))
         plan_path = API_OUTPUT_DIR / f"phi_plan_{planning_date}.csv"
         _write_plan_snapshot(plan_path, plan)
@@ -1463,6 +1488,7 @@ def reschedule_plan(request: RescheduleRequest):
         and row.get("previous_assigned_phi") == request.unavailable_phi
     )
 
+    schedule_release_store.revoke_released_schedule(planning_date)
     records = load_submitted_tasks()
     records_by_id = {
         row.get("scenario_task_id") or row.get("source_id"): row
