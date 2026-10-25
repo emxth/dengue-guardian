@@ -38,13 +38,14 @@ If a date is regenerated or adaptively rescheduled after release, its previous m
 
 ## Configure the mobile app
 
-Set the API base URL in the Expo environment when running/building the app:
+For repeat use, store the mobile URLs in `clients/phi_mobile_app/.env` (this local file is Git-ignored). Copy `.env.example` as a starting point and replace the LAN IP with the current IP of the computer running the API:
 
 ```powershell
-$env:EXPO_PUBLIC_C3_API_URL = "https://<api-host>"
 cd clients/phi_mobile_app
 npm start
 ```
+
+Expo loads the `EXPO_PUBLIC_*` values from that project `.env` at startup. Restart Expo after changing the file. Keep the API and Expo in separate terminals. For hosted production use HTTPS and configure the friend's real notification receiver URL; do not use the local test endpoint in a production app.
 
 For a physical phone during local development, use the computer's LAN IP instead of `127.0.0.1` and make sure the phone can reach the API. Use HTTPS outside local development. The mobile app stores its bearer token in Expo SecureStore and clears it on sign-out or when the API reports that the session is expired/invalid.
 

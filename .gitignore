@@ -93,6 +93,7 @@ celerybeat.pid
 .env
 .env.*
 !clients/web_dashboard/.env.example
+!clients/phi_mobile_app/.env.example
 .venv
 env/
 venv/
