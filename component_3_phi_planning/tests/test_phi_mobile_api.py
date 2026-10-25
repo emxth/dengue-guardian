@@ -94,7 +94,7 @@ class FakeDatabase:
     def __init__(self, account):
         self.phi_accounts = FakeCollection([account])
         self.prevention_notification_test_events = FakeCollection()
-        self.prevention_notification_test_events = FakeCollection()
+        self.inspection_reports = FakeCollection()
 
 
 def test_phi_schedule_endpoints_require_login():
@@ -187,7 +187,9 @@ def test_local_notification_receiver_authenticates_and_deduplicates(monkeypatch)
     assert second.json()["deduplicated"] is True
     assert len(database.prevention_notification_test_events.rows) == 1
     loopback_client = TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
-    assert loopback_client.get("/api/v1/dev/prevention-notifications").json()["total"] == 1
+    listed = loopback_client.get("/api/v1/dev/prevention-notifications").json()
+    assert listed["total"] == 1
+    assert "inspection_id" not in listed["notifications"][0]
 
 
 def test_local_notification_receiver_rejects_phi_or_idempotency_mismatch(monkeypatch):

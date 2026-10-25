@@ -109,7 +109,7 @@ export async function notifyPreventionTeam(token, phi, task, report) {
       body: JSON.stringify({
         inspection_id: report.report_id,
         task_id: task.scenario_task_id || task.source_id,
-        location: task.location_label || task.village_area || task.moh_area || task.location_id || "Location not recorded",
+        location: task.village_area || task.moh_area || task.location_label || task.location_id || "Location not recorded",
         inspection_date: form.inspection_date,
         phi_reference: phi.phi_id,
         issue_description: issueDescription,

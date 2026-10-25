@@ -73,16 +73,16 @@ export default function DashboardLayout() {
                                 PHI Inspection Planning
                             </NavLink>
                             <NavLink
-                                to="/dashboard/notification-test"
+                                to="/dashboard/prevention"
                                 className={({ isActive }) =>
                                     `flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-bold transition ${isActive
-                                        ? "bg-amber-50 text-amber-800 border-l-4 border-riskMedium"
+                                        ? "bg-mintSurface text-primary border-l-4 border-primary"
                                         : "text-textMuted hover:bg-background"
                                     }`
                                 }
                             >
                                 <FlaskConical size={18} />
-                                Notification Test
+                                Prevention Dashboard
                             </NavLink>
                         </nav>
                     </div>

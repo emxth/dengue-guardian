@@ -78,7 +78,27 @@ def list_test_notifications(request: Request):
     if not is_loopback:
         raise HTTPException(status_code=403, detail="Test notifications can only be viewed locally.")
     try:
-        rows = list(get_database().prevention_notification_test_events.find({}, {"_id": 0}).sort("received_at", -1))
+        database = get_database()
+        rows = list(database.prevention_notification_test_events.find({}, {"_id": 0}).sort("received_at", -1))
+        report_ids = [row.get("inspection_id") for row in rows if row.get("inspection_id")]
+        report_collection = getattr(database, "inspection_reports", None)
+        reports = {
+            report.get("report_id"): report
+            for report in report_collection.find(
+                {"report_id": {"$in": report_ids}, "report_status": "Submitted"},
+                {"_id": 0, "report_id": 1, "task": 1, "phi_id": 1, "inspection_date": 1, "submitted_at": 1, "form": 1},
+            )
+        } if report_ids and report_collection is not None else {}
+        for row in rows:
+            report = reports.get(row.get("inspection_id"))
+            if report:
+                report["form"] = {
+                    key: value
+                    for key, value in report.get("form", {}).items()
+                    if key != "client_submission_id"
+                }
+            row["inspection_report"] = report
+            row.pop("inspection_id", None)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Test notifications are unavailable.") from exc
+        raise HTTPException(status_code=503, detail="Inspection notifications are unavailable.") from exc
     return {"notifications": rows, "total": len(rows), "mode": "development-test-only"}
