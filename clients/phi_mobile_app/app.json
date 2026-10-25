@@ -4,25 +4,30 @@
     "slug": "phi_mobile_app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/DengueGuardian.jpg",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/DengueGuardian.jpg",
-      "resizeMode": "contain",
-      "backgroundColor": "#0A1122"
-    },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/DengueGuardian.jpg",
+        "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#0A1122"
       }
     },
     "web": {
-      "favicon": "./assets/DengueGuardian.jpg"
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#0A1122",
+          "imageWidth": 200
+        }
+      ]
     ]
   }
 }
