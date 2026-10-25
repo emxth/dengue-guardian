@@ -2,18 +2,20 @@
 """Planning endpoints for the C3 PHI Planning API."""
 
 import csv
+import ipaddress
 import logging
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from component_3_phi_planning.api import task_store
 from component_3_phi_planning.api import availability_store
 from component_3_phi_planning.api import plan_store
+from component_3_phi_planning.api.mongo_store import get_database
 from component_3_phi_planning.api import schedule_release_store
 from component_3_phi_planning.config import DEFAULT_PLANNING_DATE
 from component_3_phi_planning.api.task_store import (
@@ -251,6 +253,46 @@ def _read_phi_availability(planning_date):
     database_uri = DATABASE_PATH.resolve().as_uri() + "?mode=ro"
     with sqlite3.connect(database_uri, uri=True) as connection:
         return availability_store.load_phi_daily_defaults(connection, planning_date)
+
+
+@router.get("/completed-inspections")
+def get_completed_inspections(
+    request: Request,
+    inspection_date: date = Query(...),
+):
+    """Return submitted inspection reports for one date to the local dashboard."""
+    host = request.client.host if request.client else ""
+    try:
+        is_loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = False
+    if not is_loopback:
+        raise HTTPException(status_code=403, detail="Inspection reports can only be viewed locally.")
+
+    try:
+        reports = get_database().inspection_reports.find(
+            {
+                "report_status": "Submitted",
+                "inspection_date": inspection_date.isoformat(),
+            },
+            {"_id": 0},
+        ).sort("submitted_at", -1)
+        rows = []
+        for report in reports:
+            rows.append({
+                "task": report.get("task", {}),
+                "phi_id": report.get("phi_id", ""),
+                "inspection_date": report.get("inspection_date"),
+                "submitted_at": report.get("submitted_at"),
+                "form": {
+                    key: value
+                    for key, value in report.get("form", {}).items()
+                    if key != "client_submission_id"
+                },
+            })
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Completed inspection reports are unavailable.") from exc
+    return {"inspection_date": inspection_date.isoformat(), "reports": rows, "total": len(rows)}
 
 
 @router.get("/phis/availability")

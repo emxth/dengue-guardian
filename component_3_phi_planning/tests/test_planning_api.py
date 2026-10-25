@@ -43,6 +43,45 @@ def test_health_endpoint():
     assert body["data_mode"] == "synthetic_research_data"
 
 
+def test_completed_inspections_are_date_scoped_and_hide_submission_uuid(monkeypatch):
+    class Cursor(list):
+        def sort(self, key, direction):
+            return Cursor(sorted(self, key=lambda row: row.get(key, ""), reverse=direction < 0))
+
+    class Reports:
+        def find(self, query, _projection):
+            assert query == {
+                "report_status": "Submitted",
+                "inspection_date": "2026-10-23",
+            }
+            return Cursor([{
+                "report_id": "private-report-id",
+                "report_status": "Submitted",
+                "inspection_date": "2026-10-23",
+                "submitted_at": "2026-10-23T07:00:00Z",
+                "phi_id": "PHI01",
+                "task": {"scenario_task_id": "TASK-1"},
+                "form": {
+                    "client_submission_id": "private-submission-id",
+                    "actions_taken": "Removed standing water",
+                },
+            }])
+
+    database = type("Database", (), {"inspection_reports": Reports()})()
+    monkeypatch.setattr(planning_routes, "get_database", lambda: database)
+    local_client = TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000))
+
+    response = local_client.get(
+        "/api/v1/planning/completed-inspections?inspection_date=2026-10-23"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["reports"][0]["form"] == {"actions_taken": "Removed standing water"}
+    assert "report_id" not in body["reports"][0]
+
+
 def test_priorities_endpoint():
     response = client.get("/api/v1/planning/priorities?limit=5")
 

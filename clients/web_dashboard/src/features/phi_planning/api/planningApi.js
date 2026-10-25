@@ -164,6 +164,15 @@ export async function fetchSchedule(planningDate) {
     return apiFetch(`/api/v1/planning/schedule?${query.toString()}`);
 }
 
+/** Fetch submitted mobile inspection reports for one inspection date. */
+export async function fetchCompletedInspections(inspectionDate) {
+    if (!inspectionDate || !/^\d{4}-\d{2}-\d{2}$/.test(inspectionDate)) {
+        throw new Error("Inspection date must be in YYYY-MM-DD format.");
+    }
+    const query = new URLSearchParams({ inspection_date: inspectionDate });
+    return apiFetch(`/api/v1/planning/completed-inspections?${query.toString()}`);
+}
+
 /** Persist MOH review confirmation. This does not deliver the plan to PHIs. */
 export async function confirmSchedule(planningDate) {
     if (!planningDate || !/^\d{4}-\d{2}-\d{2}$/.test(planningDate)) {

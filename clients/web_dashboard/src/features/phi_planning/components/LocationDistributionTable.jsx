@@ -29,7 +29,7 @@ export default function LocationDistributionTable({
         if (locationSummary) {
             const rows = locationSummary.map((item) => ({
                 ...item,
-                location_label: item.location_label || "Synthetic Point",
+                location_label: item.location_label || "",
                 phi_range: item.phi_range || "",
             }));
             rows.sort((a, b) => {
@@ -46,7 +46,7 @@ export default function LocationDistributionTable({
         for (const task of tasks) {
             const locId = task.location_id || "UNKNOWN";
             const locName = task.location_name || "Name unavailable";
-            const locLabel = task.location_label || "Synthetic Point";
+            const locLabel = task.location_label || "";
             const phiRange = task.phi_range || "";
 
             if (!map.has(locId)) {

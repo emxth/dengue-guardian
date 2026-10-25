@@ -19,6 +19,7 @@ import {
     fetchPriorities,
     createSchedule,
     fetchSchedule,
+    fetchCompletedInspections,
     confirmSchedule,
     reschedule,
     fetchPhiAvailability,
@@ -32,11 +33,19 @@ import PrioritySummaryCards from "../components/PrioritySummaryCards";
 import LocationDistributionTable from "../components/LocationDistributionTable";
 import NewInspectionTaskForm from "../components/NewInspectionTaskForm";
 import MonthlyDengueTrends from "../components/MonthlyDengueTrends";
+import { cleanLocationLabel, formatLocation } from "../../../shared/utils/locationDisplay";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_DATE = "2026-07-01";
 const PRIORITY_LIMIT_OPTIONS = [25, 50, 100, 200];
+
+function getLocalDateInputValue() {
+    const today = new Date();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    return `${today.getFullYear()}-${month}-${day}`;
+}
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -46,6 +55,7 @@ const TABS = [
     { id: "trends", label: "Dengue Trends", icon: BarChart3 },
     { id: "schedule", label: "PHI Scheduling", icon: CalendarDays },
     { id: "reschedule", label: "Adaptive Rescheduling", icon: RotateCcw },
+    { id: "completed", label: "Inspections Covered", icon: ClipboardCheck },
     { id: "new-task", label: "New Inspection Task", icon: PlusCircle },
 ];
 
@@ -73,6 +83,13 @@ export default function PhiPlanningDashboard() {
     const [scheduleError, setScheduleError] = useState(null);
     const [confirmationLoading, setConfirmationLoading] = useState(false);
 
+    // ── Completed inspection state ───────────────────────────────────────────
+    const [completedDate, setCompletedDate] = useState(getLocalDateInputValue);
+    const [completedReports, setCompletedReports] = useState([]);
+    const [completedLoading, setCompletedLoading] = useState(false);
+    const [completedError, setCompletedError] = useState("");
+    const [selectedCompletedReport, setSelectedCompletedReport] = useState(null);
+
     // ── Reschedule state ──────────────────────────────────────────────────────
     const [rescheduleDate, setRescheduleDate] = useState(DEFAULT_DATE);
     const [unavailablePhi, setUnavailablePhi] = useState("");
@@ -80,6 +97,32 @@ export default function PhiPlanningDashboard() {
     const [rescheduleLoading, setRescheduleLoading] = useState(false);
     const [rescheduleError, setRescheduleError] = useState(null);
     const [showConfirm, setShowConfirm] = useState(false);
+
+    useEffect(() => {
+        if (activeTab !== "completed" || !completedDate) return undefined;
+        let active = true;
+        const timer = setTimeout(() => {
+            setCompletedLoading(true);
+            setCompletedError("");
+            fetchCompletedInspections(completedDate)
+                .then((data) => {
+                    if (active) setCompletedReports(data.reports ?? []);
+                })
+                .catch((err) => {
+                    if (active) {
+                        setCompletedReports([]);
+                        setCompletedError(err.message);
+                    }
+                })
+                .finally(() => {
+                    if (active) setCompletedLoading(false);
+                });
+        }, 0);
+        return () => {
+            active = false;
+            clearTimeout(timer);
+        };
+    }, [activeTab, completedDate]);
 
     useEffect(() => {
         let active = true;
@@ -334,6 +377,24 @@ export default function PhiPlanningDashboard() {
             )}
 
             {activeTab === "trends" && <MonthlyDengueTrends />}
+
+            {activeTab === "completed" && (
+                <CompletedInspectionsTab
+                    date={completedDate}
+                    onDateChange={setCompletedDate}
+                    reports={completedReports}
+                    loading={completedLoading}
+                    error={completedError}
+                    onOpenDetails={setSelectedCompletedReport}
+                />
+            )}
+
+            {selectedCompletedReport && (
+                <InspectionDetailsDialog
+                    report={selectedCompletedReport}
+                    onClose={() => setSelectedCompletedReport(null)}
+                />
+            )}
 
             {/* ── Tab: Schedule ─────────────────────────────────────────────── */}
             {activeTab === "schedule" && (
@@ -1209,6 +1270,73 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate, o
             )}
         </div>
     );
+}
+
+// ── Completed Inspections Tab ────────────────────────────────────────────────
+
+function CompletedInspectionsTab({ date, onDateChange, reports, loading, error, onOpenDetails }) {
+    return (
+        <section className="space-y-4">
+            <div className="flex flex-wrap items-end justify-between gap-4 border-y border-borderLight bg-surface px-4 py-3">
+                <div>
+                    <label htmlFor="completed-inspection-date" className="mb-1.5 block text-xs font-bold uppercase text-textMuted">Inspection date</label>
+                    <input id="completed-inspection-date" type="date" value={date} onChange={(event) => onDateChange(event.target.value)} className="rounded-md border border-borderLight bg-background px-3 py-2 text-sm text-darkBase" />
+                </div>
+                <p className="text-sm font-semibold text-darkBase">{loading ? "Loading completed inspections…" : `${reports.length} completed ${reports.length === 1 ? "inspection" : "inspections"}`}</p>
+            </div>
+            {error && <ApiError message={error} />}
+            {!loading && !error && reports.length === 0 && <EmptyState message="No submitted inspection reports were found for this date." />}
+            {reports.length > 0 && (
+                <div className="overflow-x-auto border-y border-borderLight bg-surface">
+                    <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                        <thead className="border-b border-borderLight bg-background text-[11px] font-bold uppercase text-textMuted"><tr><th className="px-3 py-2.5">Task</th><th className="px-3 py-2.5">Type</th><th className="px-3 py-2.5">Location</th><th className="px-3 py-2.5">PHI</th><th className="px-3 py-2.5">Submitted</th><th className="px-3 py-2.5">Details</th></tr></thead>
+                        <tbody className="divide-y divide-borderLight">
+                            {reports.map((report, index) => (
+                                <tr key={`${report.task?.scenario_task_id || report.task?.source_id || index}-${report.submitted_at || index}`}>
+                                    <td className="px-3 py-3 text-xs font-semibold text-darkBase">{report.task?.scenario_task_id || report.task?.source_id || "Inspection"}</td>
+                                    <td className="px-3 py-3 text-xs text-textMuted">{report.task?.task_type || "Inspection"}</td>
+                                    <td className="px-3 py-3 text-xs text-darkBase">{cleanLocationLabel(report.task?.location_label) || cleanLocationLabel(report.task?.village_area) || cleanLocationLabel(report.task?.moh_area) || "Not recorded"}</td>
+                                    <td className="px-3 py-3 text-xs font-semibold text-darkBase">{report.phi_id || "Not recorded"}</td>
+                                    <td className="px-3 py-3 text-xs text-textMuted">{report.submitted_at ? new Date(report.submitted_at).toLocaleString() : "Not recorded"}</td>
+                                    <td className="px-3 py-3"><button type="button" onClick={() => onOpenDetails(report)} className="rounded-md border border-borderLight px-3 py-1.5 text-xs font-bold text-primary hover:bg-background">View details</button></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </section>
+    );
+}
+
+function InspectionDetailsDialog({ report, onClose }) {
+    const form = report.form || {};
+    const task = report.task || {};
+    const caseInfo = form.case_investigation || {};
+    const yesNo = (value) => value === true ? "Yes" : value === false ? "No" : "Not assessed";
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="inspection-details-title" className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-borderLight bg-surface shadow-xl">
+                <header className="sticky top-0 flex items-center justify-between border-b border-borderLight bg-surface px-5 py-4"><div><h2 id="inspection-details-title" className="text-base font-bold text-darkBase">Inspection report details</h2><p className="mt-1 text-xs text-textMuted">{task.scenario_task_id || task.source_id || "Inspection"} · {form.inspection_date || report.inspection_date || "Date not recorded"}</p></div><button type="button" onClick={onClose} aria-label="Close details" className="h-8 w-8 rounded-md border border-borderLight text-textMuted hover:bg-background">×</button></header>
+                <div className="grid gap-5 p-5 sm:grid-cols-2">
+                    <DetailSection title="Assignment"><Detail label="PHI" value={report.phi_id} /><Detail label="Task type" value={task.task_type} /><Detail label="Location" value={formatLocation(task.location_label, task.village_area, task.moh_area)} /><Detail label="Case reference" value={form.patient_case_reference} /><Detail label="Time" value={form.inspection_time} /></DetailSection>
+                    <DetailSection title="Case investigation"><Detail label="Status" value={caseInfo.investigation_status} /><Detail label="Onset" value={caseInfo.disease_onset_date} /><Detail label="Hospital" value={caseInfo.hospital_name} /><Detail label="Discharge" value={caseInfo.discharge_date} /><Detail label="Outcome" value={caseInfo.case_outcome} /><Detail label="Laboratory findings" value={caseInfo.laboratory_findings} /><Detail label="Advice" value={caseInfo.isolation_or_advice} /></DetailSection>
+                    <DetailSection title="Contacts"><Detail label="Household investigated" value={yesNo(form.household_contacts_investigated)} /><Detail label="Other contacts investigated" value={yesNo(form.other_contacts_investigated)} />{(form.contacts || []).map((contact, index) => <div key={index} className="border-t border-borderLight pt-2"><Detail label={`Contact ${index + 1}`} value={[contact.contact_type, contact.contact_reference, contact.age_years == null ? "" : `${contact.age_years} years`, contact.date_seen].filter(Boolean).join(" · ")} /><Detail label="Symptoms / observations" value={contact.symptoms || contact.observation} /></div>)}</DetailSection>
+                    <DetailSection title="Environmental findings"><Detail label="Assessment complete" value={yesNo(form.environmental_assessment_complete)} />{(form.breeding_sites || []).map((site, index) => <div key={index} className="border-t border-borderLight pt-2"><Detail label={`Site ${index + 1}`} value={`${site.site_type || "Site"} · ${site.location_description || "Location not recorded"}`} /><Detail label="Water / larvae" value={`${site.standing_water || "Not assessed"} / ${site.larvae_pupae || "Not assessed"}`} /><Detail label="Severity / count" value={`${site.severity || "Not assessed"} / ${site.count ?? "Not recorded"}`} /><Detail label="Observation" value={site.observation} /></div>)}<Detail label="Waste / storage" value={form.waste_or_storage_observations} /></DetailSection>
+                    <DetailSection title="Actions and follow-up"><Detail label="Actions taken" value={form.actions_taken} /><Detail label="Sources corrected" value={yesNo(form.breeding_sources_corrected)} /><Detail label="Education provided" value={yesNo(form.prevention_education_provided)} /><Detail label="Follow-up required" value={form.follow_up_required ? "Yes" : "No"} /><Detail label="Follow-up date" value={form.follow_up_date} /><Detail label="Follow-up notes" value={form.follow_up_notes} /><Detail label="Additional notes" value={form.additional_notes} /></DetailSection>
+                </div>
+            </section>
+        </div>
+    );
+}
+
+function DetailSection({ title, children }) {
+    return <section className="space-y-2 border-t border-borderLight pt-3 first:border-0 first:pt-0"><h3 className="text-xs font-bold uppercase text-textMuted">{title}</h3>{children}</section>;
+}
+
+function Detail({ label, value }) {
+    if (value === undefined || value === null || value === "") return null;
+    return <p className="text-xs leading-5 text-darkBase"><span className="font-semibold text-textMuted">{label}: </span>{String(value)}</p>;
 }
 
 // ── Reschedule Tab ────────────────────────────────────────────────────────────
