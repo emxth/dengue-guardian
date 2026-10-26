@@ -1,4 +1,4 @@
-import { ClipboardList, CheckCircle2, XCircle, Users } from "lucide-react";
+import { ClipboardList, CheckCircle2, XCircle } from "lucide-react";
 
 /**
  * PlanningSummaryCards
@@ -10,7 +10,6 @@ import { ClipboardList, CheckCircle2, XCircle, Users } from "lucide-react";
  *   totalTasks       — total number of tasks in the schedule
  *   scheduledTasks   — number of successfully scheduled tasks
  *   unscheduledTasks — number of tasks not scheduled
- *   solverStatus     — solver status string from the API
  */
 export default function PlanningSummaryCards({
     totalTasks,
@@ -19,7 +18,6 @@ export default function PlanningSummaryCards({
     unscheduledTasks,
     completedTasks,
     cancelledTasks,
-    solverStatus,
     carriedForwardTasks,
 }) {
     const cards = [
@@ -27,7 +25,6 @@ export default function PlanningSummaryCards({
             label: "Total Tasks",
             value: totalTasks ?? "—",
             sublabel: "Considered for date",
-            category: "Total",
             icon: ClipboardList,
             bg: "bg-accent/30",
             iconColor: "text-primary",
@@ -36,7 +33,6 @@ export default function PlanningSummaryCards({
             label: "New Tasks",
             value: newTasks ?? "—",
             sublabel: "Received on selected date",
-            category: "Task Origin",
             icon: ClipboardList,
             bg: "bg-accent/30",
             iconColor: "text-primary",
@@ -45,7 +41,6 @@ export default function PlanningSummaryCards({
             label: "Scheduled",
             value: scheduledTasks ?? "—",
             sublabel: "Assigned inspection slot",
-            category: "Outcome Category",
             icon: CheckCircle2,
             bg: "bg-mintSurface",
             iconColor: "text-riskCleared",
@@ -53,8 +48,7 @@ export default function PlanningSummaryCards({
         {
             label: "Unscheduled",
             value: unscheduledTasks ?? "—",
-            sublabel: "Pending feasible slot",
-            category: "Outcome Category",
+            sublabel: "Waiting for an available time slot",
             icon: XCircle,
             bg: "bg-red-50",
             iconColor: "text-riskHigh",
@@ -62,8 +56,7 @@ export default function PlanningSummaryCards({
         {
             label: "Completed",
             value: completedTasks ?? "—",
-            sublabel: "Terminal; not reassigned",
-            category: "Lifecycle",
+            sublabel: "Completed inspections",
             icon: CheckCircle2,
             bg: "bg-mintSurface",
             iconColor: "text-riskCleared",
@@ -71,8 +64,7 @@ export default function PlanningSummaryCards({
         {
             label: "Cancelled",
             value: cancelledTasks ?? "—",
-            sublabel: "Terminal; not reassigned",
-            category: "Lifecycle",
+            sublabel: "Cancelled inspections",
             icon: XCircle,
             bg: "bg-red-50",
             iconColor: "text-riskHigh",
@@ -80,28 +72,17 @@ export default function PlanningSummaryCards({
         {
             label: "Carried Forward",
             value: carriedForwardTasks ?? "—",
-            sublabel: "Earlier Pending / In Progress",
-            category: "Overlapping Metric",
+            sublabel: "Tasks from earlier planning dates",
             icon: ClipboardList,
             bg: "bg-amber-50",
             iconColor: "text-riskMedium",
-        },
-        {
-            label: "Solver Status",
-            value: solverStatus ?? "—",
-            sublabel: "Optimization outcome",
-            category: "Engine",
-            icon: Users,
-            bg: "bg-accent/20",
-            iconColor: "text-secondary",
-            small: true,
         },
     ];
 
     return (
         <div className="space-y-2">
             <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8 gap-3">
-                {cards.map(({ label, value, sublabel, category, icon: Icon, bg, iconColor, small }) => (
+                {cards.map(({ label, value, sublabel, icon: Icon, bg, iconColor }) => (
                     <div
                         key={label}
                         className="bg-surface p-4 rounded-xl border border-borderLight shadow-sm flex flex-col justify-between"
@@ -117,26 +98,13 @@ export default function PlanningSummaryCards({
                                     <Icon size={14} />
                                 </div>
                             </div>
-                            <p
-                                className={`font-extrabold text-darkBase ${
-                                    small ? "text-sm break-words" : "text-xl"
-                                }`}
-                            >
+                            <p className="text-xl font-extrabold text-darkBase">
                                 {value}
                             </p>
                         </div>
                         <div className="mt-2 pt-2 border-t border-borderLight/60 flex flex-col gap-0.5">
                             <span className="text-[10px] font-semibold text-textMuted leading-tight">
                                 {sublabel}
-                            </span>
-                            <span className={`text-[9px] font-bold uppercase ${
-                                category === "Overlapping Metric"
-                                    ? "text-riskMedium"
-                                    : category === "Outcome Category"
-                                    ? "text-primary"
-                                    : "text-textMuted"
-                            }`}>
-                                {category}
                             </span>
                         </div>
                     </div>

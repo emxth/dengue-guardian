@@ -59,7 +59,7 @@ PRIORITIZATION = {
     "medium_threshold": 40,
     "top_k_zones": 20,
 }
-DEFAULT_PLANNING_DATE = "2026-07-01"
+DEFAULT_PLANNING_DATE = "2026-04-01"
 
 # ---------------------------------------------------------------------------
 # PHI allocation settings

@@ -8,7 +8,7 @@ import TaskPriorityDisplay from "./TaskPriorityDisplay";
 const INITIAL_FORM = {
     task_type: "Dengue Case Inspection",
     location_id: "",
-    planning_date: "2026-07-01",
+    planning_date: "2026-04-01",
     urgency: "",
     complaint_type: "",
 };

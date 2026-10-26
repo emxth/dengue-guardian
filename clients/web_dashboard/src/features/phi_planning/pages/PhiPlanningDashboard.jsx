@@ -37,7 +37,7 @@ import { cleanLocationLabel, formatLocation } from "../../../shared/utils/locati
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_DATE = "2026-07-01";
+const DEFAULT_DATE = "2026-04-01";
 const PRIORITY_LIMIT_OPTIONS = [25, 50, 100, 200];
 
 function getLocalDateInputValue() {
@@ -550,7 +550,6 @@ function OverviewTab({ scheduleResult, priorities, onLoadPriorities, onGenerateS
                             unscheduledTasks={scheduleResult.unscheduled_tasks}
                             completedTasks={scheduleResult.completed_tasks}
                             cancelledTasks={scheduleResult.cancelled_tasks}
-                            solverStatus={scheduleResult.solver_status}
                             carriedForwardTasks={scheduleResult.carried_forward_tasks}
                         />
                         <p className="text-xs text-textMuted">
@@ -1134,7 +1133,7 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate, o
                     ) : (
                         <CalendarDays size={15} />
                     )}
-                    {loading ? "Running Solver…" : "Generate Schedule"}
+                    {loading ? "Building Schedule…" : "Generate Schedule"}
                 </button>
             </div>
 
@@ -1176,7 +1175,7 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate, o
                                 <span className="font-bold">
                                     {scheduleState.confirmed ? "Schedule confirmed" : "Schedule ready for review"}
                                 </span>{" "}
-                                · {result.planning_date} · {result.solver_status}
+                                · {result.planning_date}
                             </p>
                             {!scheduleState.confirmed && (
                                 <button
@@ -1205,7 +1204,6 @@ function ScheduleTab({ date, onDateChange, result, loading, error, onGenerate, o
                         unscheduledTasks={result.unscheduled_tasks}
                         completedTasks={result.completed_tasks}
                         cancelledTasks={result.cancelled_tasks}
-                        solverStatus={result.solver_status}
                         carriedForwardTasks={result.carried_forward_tasks}
                     />
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-borderLight pb-3">
