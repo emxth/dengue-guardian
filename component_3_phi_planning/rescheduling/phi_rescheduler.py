@@ -148,13 +148,12 @@ def reschedule_tasks(
         row["start_time"] = ""
         row["end_time"] = ""
 
-    # Only available PHIs with modeled remaining task capacity are candidates.
+    # Availability and free schedule time determine reassignment capacity.
     candidates = [
         phi_id
         for phi_id, details in phi_daily.items()
         if phi_id != unavailable_phi
         and str(details["availability"]).strip().casefold() == "available"
-        and details["daily_capacity"] > details["existing_workload"]
     ]
 
     # Keep priority tier dominant, then same-day work and oldest carried work.
@@ -189,17 +188,20 @@ def reschedule_tasks(
             if task_area and phi_area and str(task_area).strip().casefold() != str(phi_area).strip().casefold():
                 continue
 
+            work_start = time_to_minutes(details["working_start"])
+            work_end = time_to_minutes(details["working_end"])
+            max_time_slots = max(
+                0,
+                (work_end - work_start) // TASK_DURATION_MINUTES,
+            )
             capacity_left = (
-                details["daily_capacity"]
-                - details["existing_workload"]
+                max_time_slots
+                - max(0, int(details["existing_workload"]))
                 - assigned_counts[phi_id]
             )
 
             if capacity_left <= 0:
                 continue
-
-            work_start = time_to_minutes(details["working_start"])
-            work_end = time_to_minutes(details["working_end"])
 
             # Reserve modeled existing-workload slots at the start of the workday.
             # The synthetic scheduler models each existing task as 45 minutes.

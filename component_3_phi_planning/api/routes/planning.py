@@ -1483,7 +1483,7 @@ def reschedule_plan(request: RescheduleRequest):
             classification = "Unscheduled"
         elif (task_status in ("Completed", "In Progress")) and prev_phi == request.unavailable_phi:
             classification = "Unchanged"
-        elif curr_status == "Scheduled" and (curr_phi != prev_phi or "reassigned" in reason):
+        elif curr_status == "Scheduled" and curr_phi != prev_phi:
             classification = "Reassigned"
         else:
             classification = "Unchanged"

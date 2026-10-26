@@ -2020,7 +2020,7 @@ def test_reschedule_response_contains_transparency_fields():
         assert t["reassignment_classification"] == "Unchanged"
         assert t["assigned_phi"] == t["previous_assigned_phi"]
 
-    # Verify PHI03 classifications against the same generated schedule.
+    # A second absence is handled against the schedule after PHI02 was removed.
     response_phi03 = client.post(
         "/api/v1/planning/reschedule",
         json={
@@ -2034,7 +2034,7 @@ def test_reschedule_response_contains_transparency_fields():
     expected_phi03_count = sum(
         task.get("status") == "Scheduled"
         and task.get("assigned_phi") == "PHI03"
-        for task in schedule_response.json()["tasks"]
+        for task in body["tasks"]
     )
     assert body_phi03["affected_tasks"] == expected_phi03_count
 

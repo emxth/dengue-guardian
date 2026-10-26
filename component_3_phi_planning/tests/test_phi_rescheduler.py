@@ -6,11 +6,11 @@ from component_3_phi_planning.rescheduling.phi_rescheduler import (
 )
 
 
-def phi(availability="Available", capacity=3, workload=0):
+def phi(availability="Available", capacity=3, workload=0, start="08:00", end="16:00"):
     return {
         "availability": availability,
-        "working_start": "08:00",
-        "working_end": "16:00",
+        "working_start": start,
+        "working_end": end,
         "daily_capacity": capacity,
         "existing_workload": workload,
     }
@@ -73,6 +73,7 @@ class TestPhiRescheduler(unittest.TestCase):
             "PHI01": phi(capacity=1, workload=1),
             "PHI02": phi(capacity=3),
         }
+        availability["PHI01"]["working_end"] = "08:45"
 
         result = reschedule_tasks(plan, availability, "PHI02")
         by_id = {row["scenario_task_id"]: row for row in result}
@@ -80,6 +81,20 @@ class TestPhiRescheduler(unittest.TestCase):
         self.assertEqual(by_id["TASK-2"]["status"], "Unscheduled")
         self.assertEqual(by_id["TASK-2"]["assigned_phi"], "")
         self.assertEqual(len(result), 2)
+
+    def test_available_phi_with_zero_dataset_capacity_uses_free_time_slots(self):
+        plan = [task("TASK-1", "PHI02", "08:00", "08:45")]
+        availability = {
+            "PHI01": phi(capacity=0),
+            "PHI02": phi(availability="Unavailable"),
+        }
+
+        result = reschedule_tasks(plan, availability, "PHI02")
+
+        self.assertEqual(result[0]["status"], "Scheduled")
+        self.assertEqual(result[0]["assigned_phi"], "PHI01")
+        self.assertEqual(result[0]["start_time"], "08:00")
+        self.assertEqual(result[0]["end_time"], "08:45")
 
     def test_rejects_unknown_phi(self):
         plan = [task("TASK-1", "PHI01", "08:00", "08:45")]
@@ -233,7 +248,7 @@ class TestPhiRescheduler(unittest.TestCase):
              "task_date": "2026-04-03"},
         ]
         availability = {
-            "PHI01": phi(capacity=1),
+            "PHI01": phi(capacity=1, start="08:00", end="08:45"),
             "PHI02": phi(capacity=2),
         }
 
@@ -269,7 +284,7 @@ class TestPhiRescheduler(unittest.TestCase):
         result = reschedule_tasks(
             [low_fallback, high_fallback],
             {
-                "PHI01": phi(capacity=1),
+                "PHI01": phi(capacity=1, start="08:00", end="08:45"),
                 "PHI02": phi(capacity=2, availability="Unavailable"),
             },
             "PHI02",
@@ -344,7 +359,7 @@ class TestPhiRescheduler(unittest.TestCase):
                 "moh_area": "Kaduwela",
             },
             "PHI-OTHER": {
-                **phi(capacity=1),
+                **phi(capacity=1, start="08:00", end="08:45"),
                 "moh_area": "Kaduwela",
                 "phi_range": "Other Range",
             },
